@@ -66,7 +66,7 @@ password, which labelize does not ship. Put `LABELIZE_NLBL_PASSWORD=…` in a
 Compose passes it to the container. With plain `docker run`:
 
 ```bash
-docker run -p 8080:8080 --env-file .env ghcr.io/<owner>/labelize:edge
+docker run -p 8080:8080 --env-file .env ghcr.io/sfrev/labelize:edge
 ```
 
 ## 5. Production notes
