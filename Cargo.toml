@@ -50,15 +50,21 @@ tokio = { version = "1", features = ["full"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
+# Optional — ZebraDesigner/NiceLabel .nlbl label metadata
+zip = { version = "9.2.2", default-features = false, features = ["aes-crypto", "deflate"], optional = true }
+roxmltree = { version = "0.21.2", optional = true }
+
 [features]
 default = []
-cli = ["dep:clap"]
+cli = ["dep:clap", "nlbl"]
 playground = []
 # Serialize the report types (Language, ValidationReport) so HTTP layers and
 # SDK consumers share one wire shape instead of re-declaring mirror structs.
 serde = ["dep:serde"]
 serve = ["cli", "playground", "serde", "dep:axum", "dep:tokio", "dep:serde_json"]
 skill = []
+# Read label size, margins and printer DPI from .nlbl design files.
+nlbl = ["dep:zip", "dep:roxmltree"]
 
 [[bin]]
 name = "labelize"
@@ -74,3 +80,4 @@ sha2 = "0.11"
 # Decoder stack is test-only (DataMatrix escapes and QR mask tests); kept out of the
 # production dependency so Android/WASM consumers don't compile it.
 rxing = { version = "0.9", default-features = false, features = ["decoders", "datamatrix", "qrcode"] }
+zip = { version = "9.2.2", default-features = false, features = ["aes-crypto", "deflate"] }

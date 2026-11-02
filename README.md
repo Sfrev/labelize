@@ -263,6 +263,7 @@ Usage: labelize <COMMAND>
 
 Commands:
   convert  Convert a ZPL/EPL/TSPL/CPCL/DPL file to PNG or PDF
+  nlbl     Print the label size, margins and printer resolution of a .nlbl file
   serve    Start HTTP server for label conversion
 
 Convert Options:
@@ -272,10 +273,37 @@ Convert Options:
   -t, --type <TYPE>     Output type: png | pdf [default: png]
   --width <MM>          Label width in mm [default: 102; TSPL: from SIZE, CPCL: from PAGE-WIDTH]
   --height <MM>         Label height in mm [default: 152; TSPL: from SIZE, CPCL: from header]
-  --dpmm <N>            Dots per mm: 6, 8, 12, or 24 [default: 8]
+  --dpmm <N>            Dots per mm: 6, 8, 12, or 24 [default: from --nlbl, else 8]
   --antialias           8-bit grayscale output (default: 1-bit)
   --guides              Overlay the label outline and printable area (colour output)
   --margins <MM>        Margins for the overlay: "2" or "top,right,bottom,left"; implies --guides
+  --nlbl <PATH>         ZebraDesigner .nlbl design file: label size, margins and dpmm
+                        (explicit flags win); implies --guides
+```
+
+**`.nlbl` design files.** Printer languages don't record the label stock, but
+ZebraDesigner/NiceLabel design files do. `--nlbl` reads the label size,
+margins and printer resolution from one and draws them over the render of the
+ZPL it exports:
+
+```bash
+labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … dpmm=12
+labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guides
+```
+
+The designer places the label on a page with margins around it (a 60 × 30 mm
+label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
+that page, so it is the canvas; the dashed guide marks the label and the
+tinted band the margins. Sizes land on the printer's own dots: a 300-dpi
+printer has 11.81 dots/mm, so that page renders at the designer's
+`^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
+
+The archive inside a `.nlbl` is password-protected and labelize does not ship
+that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,
+git-ignored `.env` (see [.env.example](.env.example)). Only the stock is read
+from the design file — content still comes from the exported ZPL.
+
+```
 
 Serve Options:
   --host <HOST>         Bind address [default: 0.0.0.0]
@@ -292,6 +320,7 @@ Serve Options:
 | `/`       | GET  | Interactive web playground |
 | `/health` | GET  | Health check → `{"status":"ok"}` |
 | `/convert` | POST | Convert label data → PNG or PDF |
+| `/nlbl`   | POST | Read a `.nlbl` design file → label/page size, margins, dpi as JSON |
 
 **POST /convert** — the parser is selected by `Content-Type` (`application/zpl` / `application/epl` / `application/tspl` / `application/cpcl` / `application/dpl`); without one, the body is sniffed:
 
@@ -306,6 +335,24 @@ Serve Options:
 | `margins` | —       | Overlay margins in mm: `2` or `top,right,bottom,left`; implies `guides`. Margins that leave no printable area return `400` |
 
 Status codes: `200` success (body is PNG/PDF bytes) · `400` parse error (bad label data) · `500` render error. Only the first label in the body is rendered — split multi-label files, or use the CLI.
+
+**POST /nlbl** — body is the raw `.nlbl` file. Returns the stored measurements
+plus `convert_query`, the `/convert` parameters that render the page and its
+margins on the printer's exact dots. Read the design file once (e.g. when the
+label is imported), keep the query, and render the exported ZPL with it:
+
+```bash
+curl -X POST --data-binary @label.nlbl http://localhost:8080/nlbl
+# {"label_width_mm":60.0,"label_height_mm":30.0,"page_width_mm":66.0,…,
+#  "dpi":300,"dpmm":12,"convert_query":"width=65&height=35.41…&margins=2.95…&dpmm=12"}
+curl -X POST -H "Content-Type: application/zpl" --data-binary @label.prn \
+  "http://localhost:8080/convert?width=65&height=35.41…&margins=2.95…&dpmm=12" -o label.png
+```
+
+The server reads the archive password from `LABELIZE_NLBL_PASSWORD`
+(`docker run -e LABELIZE_NLBL_PASSWORD=…` or `--env-file .env`). Status codes:
+`200` JSON · `400` not a valid `.nlbl` · `500` password missing or wrong on the
+server.
 
 </details>
 

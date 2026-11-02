@@ -18,6 +18,38 @@ fn parse_margins(s: &str) -> Result<LabelMargins, String> {
     s.parse()
 }
 
+/// The .nlbl archive password from the environment, or from a `KEY=value`
+/// line in `./.env` (labelize never ships the password).
+#[cfg(feature = "cli")]
+fn nlbl_password() -> String {
+    use labelize::parsers::nlbl::PASSWORD_ENV;
+
+    std::env::var(PASSWORD_ENV)
+        .ok()
+        .or_else(|| {
+            let env_file = std::fs::read_to_string(".env").ok()?;
+            env_file.lines().find_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                (key.trim() == PASSWORD_ENV).then(|| value.trim().trim_matches('"').to_string())
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Read a .nlbl design file with [`nlbl_password`].
+#[cfg(feature = "cli")]
+fn read_nlbl(path: &Path) -> Result<labelize::NlblLayout, String> {
+    use labelize::parsers::nlbl::PASSWORD_ENV;
+
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    labelize::parse_nlbl(&bytes, nlbl_password().as_bytes()).map_err(|e| {
+        format!(
+            "{}: {e} (set {PASSWORD_ENV} in the environment or ./.env)",
+            path.display()
+        )
+    })
+}
+
 /// Historical default label dimensions, used when neither an explicit
 /// override nor the label's own declared size (TSPL SIZE) is available.
 #[cfg(any(feature = "cli", feature = "serve"))]
@@ -84,9 +116,9 @@ enum Commands {
         #[arg(long)]
         height: Option<f64>,
 
-        /// Dots per mm (6, 8, 12, or 24)
-        #[arg(long, default_value_t = 8)]
-        dpmm: i32,
+        /// Dots per mm (6, 8, 12, or 24) [default: from --nlbl, else 8]
+        #[arg(long)]
+        dpmm: Option<i32>,
 
         /// Emit 8-bit grayscale output preserving antialiasing (default: 1-bit)
         #[arg(long)]
@@ -100,6 +132,19 @@ enum Commands {
         /// sides or "top,right,bottom,left". Implies --guides.
         #[arg(long, value_parser = parse_margins)]
         margins: Option<LabelMargins>,
+
+        /// ZebraDesigner/NiceLabel .nlbl design file: supplies the label
+        /// size, margins and printer dpmm (explicit flags still win) and
+        /// turns on the guide overlay. Password from LABELIZE_NLBL_PASSWORD
+        /// (environment or ./.env).
+        #[arg(long)]
+        nlbl: Option<PathBuf>,
+    },
+
+    /// Print the label size, margins and printer resolution of a .nlbl file
+    Nlbl {
+        /// Input .nlbl file path
+        input: PathBuf,
     },
 
     /// Convert a raster image into ZPL or TSPL printer code (reverse rendering)
@@ -153,7 +198,41 @@ fn main() {
             antialias,
             guides,
             margins,
+            nlbl,
         } => {
+            let layout = match nlbl.as_deref().map(read_nlbl).transpose() {
+                Ok(layout) => layout,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            // Explicit flags win over what the design file says. The canvas is
+            // the page (label + margins): ZPL coordinates are relative to it.
+            // At the file's own dpi, lengths land on the printer's exact dots
+            // (300 dpi is 11.81 dots/mm, not 12); an explicit --dpmm keeps
+            // plain millimetres.
+            let exact = dpmm.is_none();
+            let page = layout.as_ref().map(|l| {
+                if exact {
+                    l.render_page_mm()
+                } else {
+                    (l.page_width_mm, l.page_height_mm)
+                }
+            });
+            let width = width.or(page.map(|p| p.0));
+            let height = height.or(page.map(|p| p.1));
+            let dpmm = dpmm.or(layout.as_ref().and_then(|l| l.dpmm())).unwrap_or(8);
+            let margins =
+                margins.or(layout.as_ref().map(
+                    |l| {
+                        if exact {
+                            l.render_margins()
+                        } else {
+                            l.margins
+                        }
+                    },
+                ));
             let guides = (guides || margins.is_some()).then(|| LabelGuides {
                 margins: margins.unwrap_or_default(),
             });
@@ -172,6 +251,32 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Nlbl { input } => match read_nlbl(&input) {
+            Ok(l) => {
+                let m = l.margins;
+                println!("label_width_mm={}", l.label_width_mm);
+                println!("label_height_mm={}", l.label_height_mm);
+                println!("page_width_mm={}", l.page_width_mm);
+                println!("page_height_mm={}", l.page_height_mm);
+                println!(
+                    "margins_mm={},{},{},{}",
+                    m.top_mm, m.right_mm, m.bottom_mm, m.left_mm
+                );
+                if let Some(dpi) = l.dpi {
+                    println!("dpi={dpi}");
+                }
+                if let Some(dpmm) = l.dpmm() {
+                    println!("dpmm={dpmm}");
+                }
+                if let Some(printer) = &l.printer {
+                    println!("printer={printer}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
         Commands::Encode {
             input,
             output,
@@ -376,6 +481,42 @@ fn convert_file(
     }
 
     Ok(())
+}
+
+/// `POST /nlbl` response: the design file's measurements as stored, plus the
+/// `/convert` settings that put the page and margins on the printer's exact
+/// dots — `convert_query` can be appended to `/convert?` as is.
+#[cfg(feature = "serve")]
+fn nlbl_json(layout: &labelize::NlblLayout) -> String {
+    let m = layout.margins;
+    let mut body = serde_json::json!({
+        "label_width_mm": layout.label_width_mm,
+        "label_height_mm": layout.label_height_mm,
+        "page_width_mm": layout.page_width_mm,
+        "page_height_mm": layout.page_height_mm,
+        "margins_mm": {
+            "top": m.top_mm, "right": m.right_mm, "bottom": m.bottom_mm, "left": m.left_mm,
+        },
+        "dpi": layout.dpi,
+        "dpmm": layout.dpmm(),
+        "printer": layout.printer,
+    });
+    // Without a dpi the caller picks the dpmm; render at plain millimetres.
+    let (width, height) = layout.render_page_mm();
+    let r = layout.render_margins();
+    let margins = format!("{},{},{},{}", r.top_mm, r.right_mm, r.bottom_mm, r.left_mm);
+    let mut query = format!("width={width}&height={height}&margins={margins}");
+    if let Some(dpmm) = layout.dpmm() {
+        query.push_str(&format!("&dpmm={dpmm}"));
+    }
+    body["render"] = serde_json::json!({
+        "width_mm": width,
+        "height_mm": height,
+        "dpmm": layout.dpmm(),
+        "margins": margins,
+    });
+    body["convert_query"] = query.into();
+    body.to_string()
 }
 
 #[cfg(feature = "serve")]
@@ -658,6 +799,33 @@ async fn serve(host: String, port: u16) {
         }
     }
 
+    // Resolved once: the container gets it from `-e`/`--env-file`.
+    let nlbl_password: &'static str = Box::leak(nlbl_password().into_boxed_str());
+    let nlbl_handler = move |body: Bytes| async move {
+        use labelize::parsers::nlbl::{is_password_error, PASSWORD_ENV};
+
+        let result = tokio::task::spawn_blocking(move || {
+            labelize::parse_nlbl(&body, nlbl_password.as_bytes())
+        })
+        .await;
+        match result {
+            Ok(Ok(layout)) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json")],
+                nlbl_json(&layout),
+            )
+                .into_response(),
+            // The upload is fine; the server's password is missing or wrong.
+            Ok(Err(e)) if is_password_error(&e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{e}: set {PASSWORD_ENV} on the server"),
+            )
+                .into_response(),
+            Ok(Err(e)) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    };
+
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health))
@@ -666,7 +834,8 @@ async fn serve(host: String, port: u16) {
         .route("/convert", post(convert_handler))
         .route("/validate", post(validate_handler))
         .route("/format", post(format_handler))
-        .route("/encode", post(encode_handler));
+        .route("/encode", post(encode_handler))
+        .route("/nlbl", post(nlbl_handler));
 
     let addr = format!("{}:{}", host, port);
     println!("Starting server on {}", addr);
@@ -680,7 +849,7 @@ async fn serve(host: String, port: u16) {
             }
         );
     } else {
-        println!("Playground: disabled — API-only mode (GET /health, POST /convert, POST /validate, POST /format, POST /encode)");
+        println!("Playground: disabled — API-only mode (GET /health, POST /convert, POST /validate, POST /format, POST /encode, POST /nlbl)");
     }
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
