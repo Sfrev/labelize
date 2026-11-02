@@ -22,6 +22,8 @@
 
 Labelize is a Rust engine that parses **ZPL** (Zebra Programming Language), **EPL** (Eltron Programming Language), **TSPL/TSC**, and **CPCL** (Zebra mobile printers), and **DPL** (Datamax-O'Neil) label data and renders it to **PNG** or **PDF** — no printer hardware required. The same engine ships as a **CLI tool**, an **HTTP microservice**, a **WebAssembly package**, an **Android library**, and a plain **Rust crate**, producing identical output on every surface.
 
+> **This fork ([Sfrev/labelize](https://github.com/Sfrev/labelize))** adds label-stock awareness on top of upstream [GOODBOY008/labelize](https://github.com/GOODBOY008/labelize): it reads the label size, margins and printer resolution from ZebraDesigner/NiceLabel **`.nlbl`** design files and draws them as **guides** over the render (CLI `--nlbl`, `labelize nlbl`, HTTP `POST /nlbl`). Its container image is **`ghcr.io/sfrev/labelize`** — see [Label stock & margins](#-label-stock--margins-nlbl).
+
 A free public playground is hosted on Cloudflare Workers at **<https://labelize.764629910.workers.dev>** — paste a label, see it render, download PNG or PDF. No install, no signup, no data leaving the browser tab beyond the render call.
 
 ## ✨ Why Labelize?
@@ -46,6 +48,7 @@ Previewing thermal labels today usually means one of three compromises: send you
 - 📱 **CPCL support** — Zebra mobile-printer sessions (`! 0 203 203 …`): resident fonts 0-7, `SETMAG`, justification, Code 128/39/EAN/UPC/I2of5, QR/PDF-417/MaxiCode/Aztec, `BOX`/`LINE`/`INVERSE-LINE`, counted `EG`/`CG` graphics
 - 🏭 **DPL support** — Datamax-O'Neil formats (`<STX>L … E`): bitmap fonts 0-8 + smooth font 9, bottom-left home coordinates, Code 128/39/UCC/EAN/UPC/I2of5, QR/PDF-417/DataMatrix/MaxiCode/Aztec, `X` line/box records
 - 🖼️ **PNG & PDF output** — thermal-faithful 1-bit monochrome by default, optional antialiased greyscale
+- 📐 **Label guides & `.nlbl` design files** — overlay the label outline, margins and printable area; read stock size, margins and dpi from ZebraDesigner `.nlbl` files and render on the printer's exact dots
 - 🔄 **Reverse rendering (image → code)** — turn any raster (PNG/JPEG/GIF/BMP) into ZPL `^GFA` or TSPL `BITMAP` printer code; pixel-faithful, round-trip tested
 - 🔤 **Embedded fonts** — zero runtime font dependencies (Roboto Condensed, DejaVu Sans Mono, ZPL GS — all permissively licensed)
 - ⚡ **~5 ms per render** — no network, no interpreter, no printer
@@ -73,6 +76,8 @@ labelize convert label.epl -t pdf             # EPL in, PDF out
 labelize convert label.cpcl                    # CPCL in (Zebra mobile)
 labelize convert label.dpl                     # DPL in (Datamax)
 labelize convert label.zpl --width 100 --height 62 --dpmm 12
+labelize convert label.zpl --nlbl label.nlbl   # page size, margins & dpi from a ZebraDesigner file
+labelize convert label.zpl --margins 3         # margin guides without a design file
 
 # Reverse rendering: image → printer code (one pixel = one dot)
 labelize encode logo.png                       # → logo.zpl (ZPL ^GFA graphic field)
@@ -85,7 +90,8 @@ labelize encode logo.png --dpmm 12 --threshold 160
 Pre-built multi-arch images (`linux/amd64` + `linux/arm64`) on every release:
 
 ```bash
-docker run -p 8080:8080 goodboy008/labelize:latest   # or ghcr.io/goodboy008/labelize
+docker run -p 8080:8080 ghcr.io/sfrev/labelize:edge   # this fork (with .nlbl support)
+# upstream: goodboy008/labelize:latest or ghcr.io/goodboy008/labelize
 
 curl -X POST http://localhost:8080/convert \
   -H "Content-Type: application/zpl" \
@@ -99,21 +105,26 @@ curl -X POST "http://localhost:8080/encode?dpmm=8" \
 ```
 
 Open `http://localhost:8080/` for the interactive playground. Tags: `latest`, `1.6.0` / `1.6` / `1`, `edge` (current `main`).
+This fork publishes `edge` from its `main` branch to `ghcr.io/sfrev/labelize`; version tags appear once a `v*` tag is pushed.
 
 #### Environment variables
 
-`serve` mode reads two optional flags; both default to `true`:
+`serve` mode reads two optional flags (both default to `true`) and the `.nlbl` archive password:
 
 | Variable | Effect when `false` |
 |----------|---------------------|
 | `LABELIZE_PLAYGROUND_ENABLED` | API-only container — `/` returns an endpoint listing instead of the web UI |
 | `LABELIZE_PLAYGROUND_LABELARY_COMPARE` | Hides the playground's "Compare with Labelary" button, which POSTs the current ZPL to the external `api.labelary.com` service |
+| `LABELIZE_NLBL_PASSWORD` | Password of the encrypted archive inside `.nlbl` files. Unset → `POST /nlbl` answers `500` for encrypted files. Never baked into the image: pass it with `-e` or `--env-file .env` |
 
 ```bash
 # Privacy-sensitive deployment: keep label data in-house
 docker run -p 8080:8080 \
   -e LABELIZE_PLAYGROUND_LABELARY_COMPARE=false \
-  goodboy008/labelize:latest
+  ghcr.io/sfrev/labelize:edge
+
+# .nlbl support: the password stays in a local, git-ignored .env
+docker run -p 8080:8080 --env-file .env ghcr.io/sfrev/labelize:edge
 ```
 
 Rendering itself (`/convert`, the CLI, the library) never makes outbound requests.
@@ -199,6 +210,37 @@ A complete runnable example lives at [`examples/render_label.rs`](examples/rende
 (`cargo run --example render_label -- label.zpl`), with a walkthrough in the
 [Rust tutorial](docs/tutorials/rust-library.md).
 
+## 📐 Label Stock & Margins (`.nlbl`)
+
+Printer languages don't record the label stock, but
+ZebraDesigner/NiceLabel design files do. `--nlbl` reads the label size,
+margins and printer resolution from one and draws them over the render of the
+ZPL it exports:
+
+```bash
+labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … dpmm=12
+labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guides
+```
+
+The designer places the label on a page with margins around it (a 60 × 30 mm
+label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
+that page, so it is the canvas; the dashed guide marks the label and the
+tinted band the margins. Sizes land on the printer's own dots: a 300-dpi
+printer has 11.81 dots/mm, so that page renders at the designer's
+`^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
+
+The archive inside a `.nlbl` is password-protected and labelize does not ship
+that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,
+git-ignored `.env` (see [.env.example](.env.example)). Only the stock is read
+from the design file — content still comes from the exported ZPL.
+
+**Typical integration** (e.g. software that imports `.prn` exports): send the
+`.nlbl` to `POST /nlbl` once per label design, store the returned
+`convert_query` next to the ZPL, and render with
+`POST /convert?{convert_query}`. Without a design file, `--margins` /
+`?margins=` draws the same guides from values you supply. Full HTTP details
+are in the [HTTP API reference](#-reference) below.
+
 ## 🎨 Web Playground
 
 Every Labelize server serves an interactive UI at `GET /` — the same page running
@@ -212,7 +254,7 @@ at the public instance:
 - Shareable permalinks that encode the label + settings in the URL hash
 
 ```bash
-labelize serve --port 8080     # or: docker run -p 8080:8080 goodboy008/labelize
+labelize serve --port 8080     # or: docker run -p 8080:8080 ghcr.io/sfrev/labelize:edge
 ```
 
 ## 🖼️ Render Quality
@@ -279,31 +321,6 @@ Convert Options:
   --margins <MM>        Margins for the overlay: "2" or "top,right,bottom,left"; implies --guides
   --nlbl <PATH>         ZebraDesigner .nlbl design file: label size, margins and dpmm
                         (explicit flags win); implies --guides
-```
-
-**`.nlbl` design files.** Printer languages don't record the label stock, but
-ZebraDesigner/NiceLabel design files do. `--nlbl` reads the label size,
-margins and printer resolution from one and draws them over the render of the
-ZPL it exports:
-
-```bash
-labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … dpmm=12
-labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guides
-```
-
-The designer places the label on a page with margins around it (a 60 × 30 mm
-label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
-that page, so it is the canvas; the dashed guide marks the label and the
-tinted band the margins. Sizes land on the printer's own dots: a 300-dpi
-printer has 11.81 dots/mm, so that page renders at the designer's
-`^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
-
-The archive inside a `.nlbl` is password-protected and labelize does not ship
-that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,
-git-ignored `.env` (see [.env.example](.env.example)). Only the stock is read
-from the design file — content still comes from the exported ZPL.
-
-```
 
 Serve Options:
   --host <HOST>         Bind address [default: 0.0.0.0]
