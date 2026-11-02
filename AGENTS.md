@@ -106,8 +106,9 @@ design files — never drawable content (that still comes from the exported
 ZPL). The archive is a ZIP with AES-256 entries; **the password is never
 committed**: callers pass it in, the CLI reads `LABELIZE_NLBL_PASSWORD` from the
 environment or a git-ignored `.env`, and tests build their own archives with a
-throwaway password. Field map (lengths in µm): `Media/Width|Height` = stock,
-`PageLayout/ElementWidth|Height` = design area at
+throwaway password. Field map (lengths in µm, confirmed against the
+designer's "Label dimensions" dialog): `Media/Width|Height` = page (label +
+margins, the canvas), `PageLayout/ElementWidth|Height` = the label itself at
 `HorizontalOffset`/`VerticalOffset` (right/bottom margins are the remainder),
 printer dpi from the base64 DEVMODE in `Printer/DevModeBuffer`, else the
 `…-300dpi` driver name. Output feeds `LabelGuides` and the canvas size/dpmm.

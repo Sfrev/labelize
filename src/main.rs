@@ -197,9 +197,10 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            // Explicit flags win over what the design file says.
-            let width = width.or(layout.as_ref().map(|l| l.width_mm));
-            let height = height.or(layout.as_ref().map(|l| l.height_mm));
+            // Explicit flags win over what the design file says. The canvas is
+            // the page (label + margins): ZPL coordinates are relative to it.
+            let width = width.or(layout.as_ref().map(|l| l.page_width_mm));
+            let height = height.or(layout.as_ref().map(|l| l.page_height_mm));
             let dpmm = dpmm.or(layout.as_ref().and_then(|l| l.dpmm())).unwrap_or(8);
             let margins = margins.or(layout.as_ref().map(|l| l.margins));
             let guides = (guides || margins.is_some()).then(|| LabelGuides {
@@ -223,8 +224,10 @@ fn main() {
         Commands::Nlbl { input } => match read_nlbl(&input) {
             Ok(l) => {
                 let m = l.margins;
-                println!("width_mm={}", l.width_mm);
-                println!("height_mm={}", l.height_mm);
+                println!("label_width_mm={}", l.label_width_mm);
+                println!("label_height_mm={}", l.label_height_mm);
+                println!("page_width_mm={}", l.page_width_mm);
+                println!("page_height_mm={}", l.page_height_mm);
                 println!(
                     "margins_mm={},{},{},{}",
                     m.top_mm, m.right_mm, m.bottom_mm, m.left_mm

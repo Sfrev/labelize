@@ -3,12 +3,13 @@
 //! Field map, established on a ZebraDesigner 3 file (format version 50) and
 //! cross-checked against the Windows DEVMODE stored beside it:
 //!
-//! - `Media/Width`, `Media/Height`: the label stock, in µm (66000 = 66 mm;
-//!   the DEVMODE paper size agrees in tenths of a millimetre).
-//! - `PageLayout/ElementWidth`, `ElementHeight`: the design area inside the
-//!   margins, in µm.
+//! - `Media/Width`, `Media/Height`: the page the driver prints, in µm — the
+//!   label plus its margins (66000 = 66 mm for a 60 mm label with 3 mm
+//!   margins; the DEVMODE paper size agrees in tenths of a millimetre).
+//! - `PageLayout/ElementWidth`, `ElementHeight`: the label itself, as entered
+//!   under "Label dimensions" in the designer.
 //! - `PageLayout/HorizontalOffset`, `VerticalOffset`: left and top margins;
-//!   right and bottom are what remains of the stock around the design area.
+//!   right and bottom are what remains of the page around the label.
 //! - `PrintScenario…/Printer/DevModeBuffer`: base64 DEVMODEW; its print
 //!   quality / Y resolution give the printer dpi. The driver name
 //!   (`ZDesigner ZD621-300dpi ZPL`) is the fallback.
@@ -23,13 +24,21 @@ use crate::error::LabelizeError;
 const UM_PER_MM: f64 = 1000.0;
 
 /// What a design file says about the physical label.
+///
+/// The designer places the label on a page with margins around it:
+/// `page = label + margins`. ZPL coordinates are relative to the page, so
+/// that is the canvas to render at; the margins mark where the label sits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NlblLayout {
-    /// Label stock width in mm.
-    pub width_mm: f64,
-    /// Label stock height in mm.
-    pub height_mm: f64,
-    /// Distance from each stock edge to the design area.
+    /// Label width in mm (the designer's "Label dimensions").
+    pub label_width_mm: f64,
+    /// Label height in mm.
+    pub label_height_mm: f64,
+    /// Page width in mm: the label plus its left and right margins.
+    pub page_width_mm: f64,
+    /// Page height in mm: the label plus its top and bottom margins.
+    pub page_height_mm: f64,
+    /// Distance from each page edge to the label.
     pub margins: LabelMargins,
     /// Printer resolution in dots per inch, when the file records one.
     pub dpi: Option<u32>,
@@ -52,29 +61,39 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
     let root = doc.root_element();
 
     let media = child(root, "Media").ok_or_else(|| missing("Media"))?;
-    let width_mm = length_mm(media, "Width")?;
-    let height_mm = length_mm(media, "Height")?;
-    if width_mm <= 0.0 || height_mm <= 0.0 {
-        return Err(LabelizeError::Parse(format!(
-            ".nlbl label size must be positive, got {width_mm}x{height_mm} mm"
-        )));
-    }
+    let page_width_mm = length_mm(media, "Width")?;
+    let page_height_mm = length_mm(media, "Height")?;
 
-    let margins = match child(root, "PageLayout") {
+    // Without a PageLayout the label fills the page.
+    let (label_width_mm, label_height_mm, margins) = match child(root, "PageLayout") {
         Some(layout) => {
             let left = length_mm(layout, "HorizontalOffset")?;
             let top = length_mm(layout, "VerticalOffset")?;
-            let inner_w = length_mm(layout, "ElementWidth")?;
-            let inner_h = length_mm(layout, "ElementHeight")?;
-            LabelMargins {
+            let label_w = length_mm(layout, "ElementWidth")?;
+            let label_h = length_mm(layout, "ElementHeight")?;
+            let margins = LabelMargins {
                 left_mm: left,
                 top_mm: top,
-                right_mm: (width_mm - inner_w - left).max(0.0),
-                bottom_mm: (height_mm - inner_h - top).max(0.0),
-            }
+                right_mm: (page_width_mm - label_w - left).max(0.0),
+                bottom_mm: (page_height_mm - label_h - top).max(0.0),
+            };
+            (label_w, label_h, margins)
         }
-        None => LabelMargins::default(),
+        None => (page_width_mm, page_height_mm, LabelMargins::default()),
     };
+    if label_width_mm <= 0.0 || label_height_mm <= 0.0 {
+        return Err(LabelizeError::Parse(format!(
+            ".nlbl label size must be positive, got {label_width_mm}x{label_height_mm} mm"
+        )));
+    }
+    if label_width_mm + margins.left_mm > page_width_mm
+        || label_height_mm + margins.top_mm > page_height_mm
+    {
+        return Err(LabelizeError::Parse(format!(
+            ".nlbl label {label_width_mm}x{label_height_mm} mm at {margins:?} does not fit \
+             its {page_width_mm}x{page_height_mm} mm page"
+        )));
+    }
 
     let printer_node = root
         .descendants()
@@ -88,8 +107,10 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
         .or_else(|| printer.as_deref().and_then(dpi_from_name));
 
     Ok(NlblLayout {
-        width_mm,
-        height_mm,
+        label_width_mm,
+        label_height_mm,
+        page_width_mm,
+        page_height_mm,
         margins,
         dpi,
         printer,
@@ -182,8 +203,10 @@ mod tests {
     #[test]
     fn dpmm_rounds_to_the_engine_classes() {
         let with = |dpi| NlblLayout {
-            width_mm: 1.0,
-            height_mm: 1.0,
+            label_width_mm: 1.0,
+            label_height_mm: 1.0,
+            page_width_mm: 1.0,
+            page_height_mm: 1.0,
             margins: LabelMargins::default(),
             dpi: Some(dpi),
             printer: None,

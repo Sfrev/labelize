@@ -287,9 +287,14 @@ margins and printer resolution from one and draws them over the render of the
 ZPL it exports:
 
 ```bash
-labelize nlbl label.nlbl                       # width_mm=66 … dpi=300 dpmm=12
-labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm @ 12 dpmm + guides
+labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … dpmm=12
+labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guides
 ```
+
+The designer places the label on a page with margins around it (a 60 × 30 mm
+label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
+that page, so it is the canvas; the dashed guide marks the label and the
+tinted band the margins.
 
 The archive inside a `.nlbl` is password-protected and labelize does not ship
 that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,

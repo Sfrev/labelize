@@ -23,8 +23,8 @@ fn devmode_b64(dpi: u16) -> String {
     base64::engine::general_purpose::STANDARD.encode(dm)
 }
 
-/// Format XML in µm: `media` is the stock, `element` the design area at
-/// `offset` (left, top); `printer` is the optional `<Printer>` block body.
+/// Format XML in µm: `media` is the page (label + margins), `element` the
+/// label at `offset` (left, top); `printer` is the `<Printer>` block body.
 fn format_xml(media: (u32, u32), element: (u32, u32), offset: (u32, u32), printer: &str) -> String {
     format!(
         "\u{feff}<?xml version=\"1.0\" encoding=\"utf-8\"?>
@@ -76,8 +76,9 @@ fn archive(format: &str, password: Option<&'static str>) -> Vec<u8> {
 }
 
 #[test]
-fn reads_stock_margins_and_dpi() {
-    // 66 x 36 mm stock, 60 x 30 mm design area, 3 mm in from the top-left.
+fn reads_label_page_margins_and_dpi() {
+    // The designer's "Label dimensions" dialog: 60 x 30 mm label with 3 mm
+    // margins on every side, which the file stores as a 66 x 36 mm page.
     let xml = format_xml(
         (66000, 36000),
         (60000, 30000),
@@ -85,7 +86,11 @@ fn reads_stock_margins_and_dpi() {
         &zd621_300dpi(),
     );
     let layout = parse_format_xml(&xml).expect("parse");
-    assert_eq!((layout.width_mm, layout.height_mm), (66.0, 36.0));
+    assert_eq!(
+        (layout.label_width_mm, layout.label_height_mm),
+        (60.0, 30.0)
+    );
+    assert_eq!((layout.page_width_mm, layout.page_height_mm), (66.0, 36.0));
     assert_eq!(layout.margins, LabelMargins::uniform(3.0));
     assert_eq!(layout.dpi, Some(300));
     assert_eq!(layout.dpmm(), Some(12));
@@ -135,12 +140,39 @@ fn unknown_printer_leaves_dpi_unset() {
 }
 
 #[test]
+fn without_page_layout_the_label_fills_the_page() {
+    let xml = format_xml((50000, 25000), (0, 0), (0, 0), "")
+        .replace(&xml_between("<PageLayout", "</PageLayout>"), "");
+    let layout = parse_format_xml(&xml).unwrap();
+    assert_eq!(
+        (layout.label_width_mm, layout.label_height_mm),
+        (50.0, 25.0)
+    );
+    assert_eq!(layout.margins, LabelMargins::default());
+}
+
+/// The literal `<PageLayout …</PageLayout>` block of [`format_xml`].
+fn xml_between(start: &str, end: &str) -> String {
+    let xml = format_xml((50000, 25000), (0, 0), (0, 0), "");
+    let from = xml.find(start).unwrap();
+    let to = xml.find(end).unwrap() + end.len();
+    xml[from..to].to_string()
+}
+
+#[test]
 fn malformed_layouts_are_parse_errors() {
     let no_media = "<EuroPlus.NiceLabel Type=\"Format\" />";
-    let zero = format_xml((0, 36000), (0, 30000), (0, 0), "");
+    let zero = format_xml((66000, 36000), (0, 30000), (0, 0), "");
     let bad = format_xml((66000, 36000), (60000, 30000), (3000, 3000), "")
         .replace("<Width>66000</Width>", "<Width>wide</Width>");
-    for xml in [no_media.to_string(), zero, bad, "not xml".to_string()] {
+    let too_big = format_xml((66000, 36000), (64000, 30000), (3000, 3000), "");
+    for xml in [
+        no_media.to_string(),
+        zero,
+        bad,
+        too_big,
+        "not xml".to_string(),
+    ] {
         let err = parse_format_xml(&xml).expect_err("must fail");
         assert!(matches!(err, LabelizeError::Parse(_)), "{err}");
     }
@@ -157,8 +189,8 @@ fn encrypted_archive_round_trip() {
     let bytes = archive(&xml, Some(TEST_PASSWORD));
     let layout = parse_nlbl(&bytes, TEST_PASSWORD.as_bytes()).expect("decrypt");
     assert_eq!(
-        (layout.width_mm, layout.height_mm, layout.dpmm()),
-        (66.0, 36.0, Some(12))
+        (layout.label_width_mm, layout.page_width_mm, layout.dpmm()),
+        (60.0, 66.0, Some(12))
     );
 }
 
@@ -166,7 +198,7 @@ fn encrypted_archive_round_trip() {
 fn plain_archive_needs_no_password() {
     let xml = format_xml((66000, 36000), (60000, 30000), (3000, 3000), "");
     let layout = parse_nlbl(&archive(&xml, None), b"").expect("plain zip");
-    assert_eq!(layout.width_mm, 66.0);
+    assert_eq!(layout.label_width_mm, 60.0);
 }
 
 #[test]
