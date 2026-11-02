@@ -274,6 +274,8 @@ Convert Options:
   --height <MM>         Label height in mm [default: 152; TSPL: from SIZE, CPCL: from header]
   --dpmm <N>            Dots per mm: 6, 8, 12, or 24 [default: 8]
   --antialias           8-bit grayscale output (default: 1-bit)
+  --guides              Overlay the label outline and printable area (colour output)
+  --margins <MM>        Margins for the overlay: "2" or "top,right,bottom,left"; implies --guides
 
 Serve Options:
   --host <HOST>         Bind address [default: 0.0.0.0]
@@ -300,6 +302,8 @@ Serve Options:
 | `dpmm`    | 8       | Dots per mm |
 | `output`  | png     | Output format: png/pdf |
 | `antialias` | false | Preserve antialiased greys instead of 1-bit |
+| `guides`  | false   | Overlay the label outline and printable area (colour output) |
+| `margins` | —       | Overlay margins in mm: `2` or `top,right,bottom,left`; implies `guides`. Margins that leave no printable area return `400` |
 
 Status codes: `200` success (body is PNG/PDF bytes) · `400` parse error (bad label data) · `500` render error. Only the first label in the body is rendered — split multi-label files, or use the CLI.
 

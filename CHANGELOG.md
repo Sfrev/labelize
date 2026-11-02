@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Label outline and margin guides**: `DrawerOptions::guides` /
+  `RenderOptions::guides` (`LabelGuides { margins: LabelMargins }`) overlay
+  the label edge, a dashed printable-area border and a tint over the margin
+  bands, so ink that strays outside the printable area stands out. Printer
+  languages don't carry the stock's margins, so the caller supplies them.
+  Exposed as `labelize convert --guides` / `--margins 2` (or
+  `top,right,bottom,left`) and `POST /convert?guides=true&margins=…`. Output
+  is colour (RGB PNG, DeviceRGB PDF) only when guides are on; the default
+  render is unchanged.
+
 ### Fixed
 
 - **CPCL and DPL parser/formatter correctness**: preserve counted binary

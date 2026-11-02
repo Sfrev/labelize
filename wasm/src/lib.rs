@@ -29,6 +29,7 @@ fn render_payload_lang(
         height_mm: if height_mm > 0.0 { Some(height_mm) } else { None },
         dpmm,
         antialias,
+        ..Default::default()
     };
     let stage = |err: labelize::LabelizeError| match err {
         labelize::LabelizeError::Parse(msg) => (Stage::Parse, msg),

@@ -12,6 +12,7 @@
 use std::io::Cursor;
 
 use crate::elements::drawer_options::DrawerOptions;
+use crate::elements::label_guides::LabelGuides;
 use crate::error::LabelizeError;
 use crate::lang::{detect_language, parse_labels, Language};
 use crate::Renderer;
@@ -49,6 +50,8 @@ pub struct RenderOptions {
     pub dpmm: i32,
     /// Keep renderer greys instead of thresholding to 1-bit.
     pub antialias: bool,
+    /// Overlay the label outline and these margins (colour output).
+    pub guides: Option<LabelGuides>,
 }
 
 impl Default for RenderOptions {
@@ -59,6 +62,7 @@ impl Default for RenderOptions {
             height_mm: None,
             dpmm: 8,
             antialias: false,
+            guides: None,
         }
     }
 }
@@ -109,8 +113,17 @@ fn render(bytes: &[u8], options: RenderOptions, want_pdf: bool) -> Result<Render
             .unwrap_or(DEFAULT_LABEL_HEIGHT_MM),
         dpmm: options.dpmm,
         antialias: options.antialias,
+        guides: options.guides,
         ..Default::default()
     };
+    // Margins are caller input like the label bytes: report a bad set as a
+    // Parse error (HTTP 400) rather than letting the renderer fail with 500.
+    if let Some(guides) = &drawer.guides {
+        guides
+            .margins
+            .validate(drawer.label_width_mm, drawer.label_height_mm)
+            .map_err(LabelizeError::Parse)?;
+    }
 
     let renderer = Renderer::new();
     let mut png = Cursor::new(Vec::new());
