@@ -229,3 +229,56 @@ fn non_archives_and_missing_formats_are_rejected() {
     let err = parse_nlbl(&bytes, b"").expect_err("no format");
     assert!(err.to_string().contains("no Formats/ entry"), "{err}");
 }
+
+#[test]
+fn render_sizes_land_on_the_printers_dots() {
+    // 300 dpi is 11.81 dots/mm but renders at 12: the 66 x 36 mm page must
+    // still be the designer's ^PW780 / ^LL425, and 3 mm margins 35 dots.
+    let xml = format_xml(
+        (66000, 36000),
+        (60000, 30000),
+        (3000, 3000),
+        &zd621_300dpi(),
+    );
+    let layout = parse_format_xml(&xml).unwrap();
+    let dpmm = layout.dpmm().unwrap() as f64;
+    let (w, h) = layout.render_page_mm();
+    assert_eq!(((w * dpmm).round(), (h * dpmm).round()), (780.0, 425.0));
+    let m = layout.render_margins();
+    assert_eq!((m.left_mm * dpmm).round(), 35.0);
+    assert_eq!((m.bottom_mm * dpmm).round(), 35.0);
+
+    // The rendered canvas is exactly that many dots.
+    let out = labelize::render_png(
+        b"^XA^PW780^LL425^FO100,100^GB10,10,10^FS^XZ",
+        labelize::RenderOptions {
+            width_mm: Some(w),
+            height_mm: Some(h),
+            dpmm: dpmm as i32,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let img = image::load_from_memory(&out.bytes).unwrap();
+    assert_eq!((img.width(), img.height()), (780, 425));
+}
+
+#[test]
+fn whole_dpmm_printers_keep_plain_millimetres() {
+    let printer = format!("<DevModeBuffer>{}</DevModeBuffer>", devmode_b64(203));
+    let xml = format_xml((66000, 36000), (60000, 30000), (3000, 3000), &printer);
+    let layout = parse_format_xml(&xml).unwrap();
+    // 203 dpi ≈ 7.99 dots/mm: 66 mm is 527 printer dots → 65.875 mm at 8.
+    assert_eq!(layout.render_page_mm().0 * 8.0, 527.0);
+    assert!((layout.render_margins().left_mm - 3.0).abs() < 0.01);
+
+    let unknown = parse_format_xml(&format_xml(
+        (66000, 36000),
+        (60000, 30000),
+        (3000, 3000),
+        "",
+    ))
+    .unwrap();
+    assert_eq!(unknown.render_page_mm(), (66.0, 36.0));
+    assert_eq!(unknown.render_margins(), LabelMargins::uniform(3.0));
+}

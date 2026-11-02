@@ -294,7 +294,9 @@ labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guide
 The designer places the label on a page with margins around it (a 60 × 30 mm
 label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
 that page, so it is the canvas; the dashed guide marks the label and the
-tinted band the margins.
+tinted band the margins. Sizes land on the printer's own dots: a 300-dpi
+printer has 11.81 dots/mm, so that page renders at the designer's
+`^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
 
 The archive inside a `.nlbl` is password-protected and labelize does not ship
 that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,

@@ -199,10 +199,30 @@ fn main() {
             };
             // Explicit flags win over what the design file says. The canvas is
             // the page (label + margins): ZPL coordinates are relative to it.
-            let width = width.or(layout.as_ref().map(|l| l.page_width_mm));
-            let height = height.or(layout.as_ref().map(|l| l.page_height_mm));
+            // At the file's own dpi, lengths land on the printer's exact dots
+            // (300 dpi is 11.81 dots/mm, not 12); an explicit --dpmm keeps
+            // plain millimetres.
+            let exact = dpmm.is_none();
+            let page = layout.as_ref().map(|l| {
+                if exact {
+                    l.render_page_mm()
+                } else {
+                    (l.page_width_mm, l.page_height_mm)
+                }
+            });
+            let width = width.or(page.map(|p| p.0));
+            let height = height.or(page.map(|p| p.1));
             let dpmm = dpmm.or(layout.as_ref().and_then(|l| l.dpmm())).unwrap_or(8);
-            let margins = margins.or(layout.as_ref().map(|l| l.margins));
+            let margins =
+                margins.or(layout.as_ref().map(
+                    |l| {
+                        if exact {
+                            l.render_margins()
+                        } else {
+                            l.margins
+                        }
+                    },
+                ));
             let guides = (guides || margins.is_some()).then(|| LabelGuides {
                 margins: margins.unwrap_or_default(),
             });

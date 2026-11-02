@@ -51,6 +51,36 @@ impl NlblLayout {
     pub fn dpmm(&self) -> Option<i32> {
         self.dpi.map(|dpi| (dpi as f64 / 25.4).round() as i32)
     }
+
+    /// Page size in mm to render at [`NlblLayout::dpmm`] so the canvas has
+    /// exactly the printer's dot count. The engine rasterises at whole dots
+    /// per mm, but 300 dpi is 11.81: a 66 × 36 mm page is the 780 × 425 dots
+    /// of the designer's `^PW780`/`^LL425`, not 792 × 432.
+    pub fn render_page_mm(&self) -> (f64, f64) {
+        match (self.dpi, self.dpmm()) {
+            (Some(dpi), Some(dpmm)) if dpmm > 0 => {
+                let dots = |mm: f64| (mm * dpi as f64 / 25.4).round() / dpmm as f64;
+                (dots(self.page_width_mm), dots(self.page_height_mm))
+            }
+            _ => (self.page_width_mm, self.page_height_mm),
+        }
+    }
+
+    /// Margins in mm to render at [`NlblLayout::dpmm`], on the same printer
+    /// dots as [`NlblLayout::render_page_mm`].
+    pub fn render_margins(&self) -> LabelMargins {
+        let scale = match (self.dpi, self.dpmm()) {
+            (Some(dpi), Some(dpmm)) if dpmm > 0 => dpi as f64 / 25.4 / dpmm as f64,
+            _ => 1.0,
+        };
+        let m = self.margins;
+        LabelMargins {
+            left_mm: m.left_mm * scale,
+            top_mm: m.top_mm * scale,
+            right_mm: m.right_mm * scale,
+            bottom_mm: m.bottom_mm * scale,
+        }
+    }
 }
 
 /// Read the layout from the format XML (the decrypted `Formats/*` entry).
