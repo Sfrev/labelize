@@ -282,3 +282,53 @@ fn whole_dpmm_printers_keep_plain_millimetres() {
     assert_eq!(unknown.render_page_mm(), (66.0, 36.0));
     assert_eq!(unknown.render_margins(), LabelMargins::uniform(3.0));
 }
+
+#[test]
+fn every_printer_resolution_renders_on_its_own_dots() {
+    // The same 60 x 30 mm label with 3 mm margins, exported for printers of
+    // different resolutions. Whatever the dpi, the canvas must be exactly the
+    // page's printer dots (the designer's ^PW/^LL), so a full-width ^PW is
+    // never re-centred and the margin guide sits on the printer's dots.
+    for (dpi, dpmm, page_dots, margin_dots) in [
+        (203u16, 8, (527, 288), 24),
+        (300, 12, (780, 425), 35),
+        (500, 20, (1299, 709), 59),
+        (600, 24, (1559, 850), 71),
+    ] {
+        let printer = format!("<DevModeBuffer>{}</DevModeBuffer>", devmode_b64(dpi));
+        let xml = format_xml((66000, 36000), (60000, 30000), (3000, 3000), &printer);
+        let layout = parse_format_xml(&xml).unwrap();
+        assert_eq!(layout.dpmm(), Some(dpmm), "{dpi} dpi");
+
+        let (w, h) = layout.render_page_mm();
+        let zpl = format!(
+            "^XA^PW{}^LL{}^FO0,0^GB{},{},2^FS^XZ",
+            page_dots.0, page_dots.1, page_dots.0, page_dots.1
+        );
+        let out = labelize::render_png(
+            zpl.as_bytes(),
+            labelize::RenderOptions {
+                width_mm: Some(w),
+                height_mm: Some(h),
+                dpmm,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let img = image::load_from_memory(&out.bytes).unwrap().to_luma8();
+        assert_eq!((img.width(), img.height()), page_dots, "{dpi} dpi canvas");
+        // A box drawn over the whole ^PW starts at x=0: nothing was shifted.
+        assert_eq!(
+            img.get_pixel(0, page_dots.1 / 2)[0],
+            0,
+            "{dpi} dpi left edge"
+        );
+        assert_eq!(
+            img.get_pixel(page_dots.0 - 1, page_dots.1 / 2)[0],
+            0,
+            "{dpi} dpi right edge"
+        );
+        let left = (layout.render_margins().left_mm * dpmm as f64).round() as u32;
+        assert_eq!(left, margin_dots, "{dpi} dpi margin");
+    }
+}
