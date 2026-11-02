@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    environment:
+      # .nlbl archive password for POST /nlbl. Compose substitutes it from the
+      # shell or the git-ignored .env next to this file; never write it here.
+      LABELIZE_NLBL_PASSWORD: ${LABELIZE_NLBL_PASSWORD:-}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s

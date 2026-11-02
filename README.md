@@ -320,6 +320,7 @@ Serve Options:
 | `/`       | GET  | Interactive web playground |
 | `/health` | GET  | Health check → `{"status":"ok"}` |
 | `/convert` | POST | Convert label data → PNG or PDF |
+| `/nlbl`   | POST | Read a `.nlbl` design file → label/page size, margins, dpi as JSON |
 
 **POST /convert** — the parser is selected by `Content-Type` (`application/zpl` / `application/epl` / `application/tspl` / `application/cpcl` / `application/dpl`); without one, the body is sniffed:
 
@@ -334,6 +335,24 @@ Serve Options:
 | `margins` | —       | Overlay margins in mm: `2` or `top,right,bottom,left`; implies `guides`. Margins that leave no printable area return `400` |
 
 Status codes: `200` success (body is PNG/PDF bytes) · `400` parse error (bad label data) · `500` render error. Only the first label in the body is rendered — split multi-label files, or use the CLI.
+
+**POST /nlbl** — body is the raw `.nlbl` file. Returns the stored measurements
+plus `convert_query`, the `/convert` parameters that render the page and its
+margins on the printer's exact dots. Read the design file once (e.g. when the
+label is imported), keep the query, and render the exported ZPL with it:
+
+```bash
+curl -X POST --data-binary @label.nlbl http://localhost:8080/nlbl
+# {"label_width_mm":60.0,"label_height_mm":30.0,"page_width_mm":66.0,…,
+#  "dpi":300,"dpmm":12,"convert_query":"width=65&height=35.41…&margins=2.95…&dpmm=12"}
+curl -X POST -H "Content-Type: application/zpl" --data-binary @label.prn \
+  "http://localhost:8080/convert?width=65&height=35.41…&margins=2.95…&dpmm=12" -o label.png
+```
+
+The server reads the archive password from `LABELIZE_NLBL_PASSWORD`
+(`docker run -e LABELIZE_NLBL_PASSWORD=…` or `--env-file .env`). Status codes:
+`200` JSON · `400` not a valid `.nlbl` · `500` password missing or wrong on the
+server.
 
 </details>
 

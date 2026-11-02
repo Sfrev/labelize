@@ -111,8 +111,13 @@ designer's "Label dimensions" dialog): `Media/Width|Height` = page (label +
 margins, the canvas), `PageLayout/ElementWidth|Height` = the label itself at
 `HorizontalOffset`/`VerticalOffset` (right/bottom margins are the remainder),
 printer dpi from the base64 DEVMODE in `Printer/DevModeBuffer`, else the
-`…-300dpi` driver name. Output feeds `LabelGuides` and the canvas size/dpmm.
-Tests: `tests/unit_nlbl.rs` (`--features nlbl`).
+`…-300dpi` driver name. Output feeds `LabelGuides` and the canvas size/dpmm;
+`render_page_mm`/`render_margins` re-express them on the printer's dot grid
+(300 dpi is 11.81 dots/mm, so a 66 mm page is `^PW780`, not 792). Surfaces:
+`convert --nlbl`, `labelize nlbl`, and `POST /nlbl` (JSON + `convert_query`;
+password errors are 500 since they are server config). Tests:
+`tests/unit_nlbl.rs` (`--features nlbl`), `tests/e2e_http_nlbl.rs`
+(`--features serve`); fixtures in `tests/common/nlbl_fixtures.rs`.
 
 ## Reverse Rendering (Image → Code)
 

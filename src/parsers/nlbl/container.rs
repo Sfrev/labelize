@@ -11,6 +11,9 @@ use crate::error::LabelizeError;
 /// kilobytes; this only stops a hostile archive from exhausting memory.
 const MAX_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
 
+pub(super) const WRONG_PASSWORD: &str = "wrong .nlbl password";
+pub(super) const PASSWORD_REQUIRED: &str = ".nlbl entries are encrypted: a password is required";
+
 /// One decrypted archive entry.
 pub struct Entry {
     pub name: String,
@@ -24,22 +27,23 @@ pub fn read_entries(bytes: &[u8], password: &[u8]) -> Result<Vec<Entry>, Labeliz
 
     let mut entries = Vec::with_capacity(archive.len());
     for i in 0..archive.len() {
-        let file = if password.is_empty() {
-            archive.by_index(i)
-        } else {
-            archive.by_index_decrypt(i, password)
-        };
-        let file = file.map_err(|e| match e {
+        let entry_error = |e: zip::result::ZipError| match e {
             zip::result::ZipError::InvalidPassword => {
-                LabelizeError::Parse("wrong .nlbl password".to_string())
+                LabelizeError::Parse(WRONG_PASSWORD.to_string())
             }
             zip::result::ZipError::UnsupportedArchive(msg) if msg.contains("Password") => {
-                LabelizeError::Parse(
-                    ".nlbl entries are encrypted: a password is required".to_string(),
-                )
+                LabelizeError::Parse(PASSWORD_REQUIRED.to_string())
             }
             e => LabelizeError::Parse(format!(".nlbl entry {i}: {e}")),
-        })?;
+        };
+        // A configured password must not stop plain entries from opening.
+        let encrypted = archive.by_index_raw(i).map_err(entry_error)?.encrypted();
+        let file = if encrypted && !password.is_empty() {
+            archive.by_index_decrypt(i, password)
+        } else {
+            archive.by_index(i)
+        };
+        let file = file.map_err(entry_error)?;
         if file.is_dir() {
             continue;
         }

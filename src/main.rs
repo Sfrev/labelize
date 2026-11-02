@@ -18,21 +18,31 @@ fn parse_margins(s: &str) -> Result<LabelMargins, String> {
     s.parse()
 }
 
-/// Read a .nlbl design file with the password from the environment, or
-/// from a `KEY=value` line in `./.env` (labelize never ships the password).
+/// The .nlbl archive password from the environment, or from a `KEY=value`
+/// line in `./.env` (labelize never ships the password).
+#[cfg(feature = "cli")]
+fn nlbl_password() -> String {
+    use labelize::parsers::nlbl::PASSWORD_ENV;
+
+    std::env::var(PASSWORD_ENV)
+        .ok()
+        .or_else(|| {
+            let env_file = std::fs::read_to_string(".env").ok()?;
+            env_file.lines().find_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                (key.trim() == PASSWORD_ENV).then(|| value.trim().trim_matches('"').to_string())
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Read a .nlbl design file with [`nlbl_password`].
 #[cfg(feature = "cli")]
 fn read_nlbl(path: &Path) -> Result<labelize::NlblLayout, String> {
     use labelize::parsers::nlbl::PASSWORD_ENV;
 
-    let password = std::env::var(PASSWORD_ENV).ok().or_else(|| {
-        let env_file = fs::read_to_string(".env").ok()?;
-        env_file.lines().find_map(|line| {
-            let (key, value) = line.split_once('=')?;
-            (key.trim() == PASSWORD_ENV).then(|| value.trim().trim_matches('"').to_string())
-        })
-    });
     let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
-    labelize::parse_nlbl(&bytes, password.unwrap_or_default().as_bytes()).map_err(|e| {
+    labelize::parse_nlbl(&bytes, nlbl_password().as_bytes()).map_err(|e| {
         format!(
             "{}: {e} (set {PASSWORD_ENV} in the environment or ./.env)",
             path.display()
@@ -473,6 +483,42 @@ fn convert_file(
     Ok(())
 }
 
+/// `POST /nlbl` response: the design file's measurements as stored, plus the
+/// `/convert` settings that put the page and margins on the printer's exact
+/// dots — `convert_query` can be appended to `/convert?` as is.
+#[cfg(feature = "serve")]
+fn nlbl_json(layout: &labelize::NlblLayout) -> String {
+    let m = layout.margins;
+    let mut body = serde_json::json!({
+        "label_width_mm": layout.label_width_mm,
+        "label_height_mm": layout.label_height_mm,
+        "page_width_mm": layout.page_width_mm,
+        "page_height_mm": layout.page_height_mm,
+        "margins_mm": {
+            "top": m.top_mm, "right": m.right_mm, "bottom": m.bottom_mm, "left": m.left_mm,
+        },
+        "dpi": layout.dpi,
+        "dpmm": layout.dpmm(),
+        "printer": layout.printer,
+    });
+    // Without a dpi the caller picks the dpmm; render at plain millimetres.
+    let (width, height) = layout.render_page_mm();
+    let r = layout.render_margins();
+    let margins = format!("{},{},{},{}", r.top_mm, r.right_mm, r.bottom_mm, r.left_mm);
+    let mut query = format!("width={width}&height={height}&margins={margins}");
+    if let Some(dpmm) = layout.dpmm() {
+        query.push_str(&format!("&dpmm={dpmm}"));
+    }
+    body["render"] = serde_json::json!({
+        "width_mm": width,
+        "height_mm": height,
+        "dpmm": layout.dpmm(),
+        "margins": margins,
+    });
+    body["convert_query"] = query.into();
+    body.to_string()
+}
+
 #[cfg(feature = "serve")]
 async fn serve(host: String, port: u16) {
     use axum::{
@@ -753,6 +799,33 @@ async fn serve(host: String, port: u16) {
         }
     }
 
+    // Resolved once: the container gets it from `-e`/`--env-file`.
+    let nlbl_password: &'static str = Box::leak(nlbl_password().into_boxed_str());
+    let nlbl_handler = move |body: Bytes| async move {
+        use labelize::parsers::nlbl::{is_password_error, PASSWORD_ENV};
+
+        let result = tokio::task::spawn_blocking(move || {
+            labelize::parse_nlbl(&body, nlbl_password.as_bytes())
+        })
+        .await;
+        match result {
+            Ok(Ok(layout)) => (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json")],
+                nlbl_json(&layout),
+            )
+                .into_response(),
+            // The upload is fine; the server's password is missing or wrong.
+            Ok(Err(e)) if is_password_error(&e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{e}: set {PASSWORD_ENV} on the server"),
+            )
+                .into_response(),
+            Ok(Err(e)) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        }
+    };
+
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health))
@@ -761,7 +834,8 @@ async fn serve(host: String, port: u16) {
         .route("/convert", post(convert_handler))
         .route("/validate", post(validate_handler))
         .route("/format", post(format_handler))
-        .route("/encode", post(encode_handler));
+        .route("/encode", post(encode_handler))
+        .route("/nlbl", post(nlbl_handler));
 
     let addr = format!("{}:{}", host, port);
     println!("Starting server on {}", addr);
@@ -775,7 +849,7 @@ async fn serve(host: String, port: u16) {
             }
         );
     } else {
-        println!("Playground: disabled — API-only mode (GET /health, POST /convert, POST /validate, POST /format, POST /encode)");
+        println!("Playground: disabled — API-only mode (GET /health, POST /convert, POST /validate, POST /format, POST /encode, POST /nlbl)");
     }
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

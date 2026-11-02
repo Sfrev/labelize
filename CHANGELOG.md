@@ -14,8 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the resulting page size (label + margins) and printer dpi (Windows DEVMODE, else the driver name) from a
   ZebraDesigner/NiceLabel `.nlbl` file. `labelize convert --nlbl FILE` uses
   them for the canvas, dpmm and guide overlay (explicit flags still win);
-  `labelize nlbl FILE` prints them. The archive password is not shipped:
-  supply it via `LABELIZE_NLBL_PASSWORD` or a local `.env`.
+  `labelize nlbl FILE` prints them. `POST /nlbl` returns them as JSON with a
+  ready `convert_query` for `/convert` that lands the page and margins on the
+  printer's exact dots. The archive password is not shipped: supply it via
+  `LABELIZE_NLBL_PASSWORD` (environment, local `.env`, or Docker
+  `-e`/`--env-file`; `docker-compose.yaml` forwards it).
 
 - **Label outline and margin guides**: `DrawerOptions::guides` /
   `RenderOptions::guides` (`LabelGuides { margins: LabelMargins }`) overlay

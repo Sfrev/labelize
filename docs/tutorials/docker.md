@@ -60,6 +60,15 @@ docker compose up -d --build
 This builds the image from source (useful for custom forks or offline
 environments) and starts it on port 8080.
 
+`POST /nlbl` (reading ZebraDesigner `.nlbl` design files) needs the archive
+password, which labelize does not ship. Put `LABELIZE_NLBL_PASSWORD=…` in a
+`.env` next to `docker-compose.yaml` (git-ignored; see `.env.example`) and
+Compose passes it to the container. With plain `docker run`:
+
+```bash
+docker run -p 8080:8080 --env-file .env ghcr.io/<owner>/labelize:edge
+```
+
 ## 5. Production notes
 
 - The container listens on `0.0.0.0:8080`; map `-p 8080:8080` or adjust to
