@@ -1,3 +1,13 @@
+# Normalize line endings: LF in the repo and in every checkout, so a Windows
+# clone doesn't show the fixtures as modified.
+* text=auto eol=lf
+
+# Fixtures intentionally stored with CRLF; keep them byte-exact.
+/testdata/labels/dpduk.clp -text
+/testdata/labels/dpduk.epl -text
+/testdata/labels/dpduk.html -text
+/testdata/labels/ups.zpl -text
+
 # Reverse golden snapshots are compared byte-for-byte on every platform.
 /testdata/reverse/*.zpl text eol=lf
 /testdata/reverse/*.tspl binary
