@@ -19,6 +19,29 @@ pub fn encode_png_with(
     antialias: bool,
 ) -> Result<(), LabelizeError> {
     let (width, height) = img.dimensions();
+    let gray = to_luma(img, antialias);
+
+    let encoder = image::codecs::png::PngEncoder::new(w);
+    use image::ImageEncoder;
+    encoder
+        .write_image(gray.as_raw(), width, height, image::ExtendedColorType::L8)
+        .map_err(|e| LabelizeError::Encode(format!("PNG encode error: {}", e)))
+}
+
+/// Encode an RGB preview (label content plus coloured guide overlay).
+pub fn encode_rgb_png(img: &image::RgbImage, w: &mut impl Write) -> Result<(), LabelizeError> {
+    let (width, height) = img.dimensions();
+    let encoder = image::codecs::png::PngEncoder::new(w);
+    use image::ImageEncoder;
+    encoder
+        .write_image(img.as_raw(), width, height, image::ExtendedColorType::Rgb8)
+        .map_err(|e| LabelizeError::Encode(format!("PNG encode error: {}", e)))
+}
+
+/// The canvas as the printer sees it: the red channel, thresholded to pure
+/// black/white unless `antialias` keeps the coverage greys.
+pub fn to_luma(img: &RgbaImage, antialias: bool) -> image::GrayImage {
+    let (width, height) = img.dimensions();
     let mut gray = image::GrayImage::new(width, height);
 
     for y in 0..height {
@@ -34,10 +57,5 @@ pub fn encode_png_with(
             gray.put_pixel(x, y, image::Luma([val]));
         }
     }
-
-    let encoder = image::codecs::png::PngEncoder::new(w);
-    use image::ImageEncoder;
-    encoder
-        .write_image(gray.as_raw(), width, height, image::ExtendedColorType::L8)
-        .map_err(|e| LabelizeError::Encode(format!("PNG encode error: {}", e)))
+    gray
 }

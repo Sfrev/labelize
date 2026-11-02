@@ -24,6 +24,14 @@ pub fn encode_pdf(
     let pages_id = doc.new_object_id();
     let page_id = doc.new_object_id();
 
+    // A guide overlay is colour and already flattened: embed it as RGB.
+    // Otherwise threshold to the bi-level gray the printer would produce.
+    let (color_space, samples) = if opts.guides.is_some() {
+        ("DeviceRGB", compress_rgb(img))
+    } else {
+        ("DeviceGray", compress_gray(img))
+    };
+
     // Add the PNG image as an XObject
     let img_stream = Stream::new(
         dictionary! {
@@ -31,11 +39,11 @@ pub fn encode_pdf(
             "Subtype" => "Image",
             "Width" => img.width() as i64,
             "Height" => img.height() as i64,
-            "ColorSpace" => "DeviceGray",
+            "ColorSpace" => color_space,
             "BitsPerComponent" => 8,
             "Filter" => "FlateDecode",
         },
-        compress_gray(img),
+        samples,
     );
 
     let img_id = doc.add_object(img_stream);
@@ -96,6 +104,17 @@ fn compress_gray(img: &RgbaImage) -> Vec<u8> {
             raw.push(val);
         }
     }
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    std::io::Write::write_all(&mut encoder, &raw).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn compress_rgb(img: &RgbaImage) -> Vec<u8> {
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+
+    let raw: Vec<u8> = img.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect();
 
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     std::io::Write::write_all(&mut encoder, &raw).unwrap();

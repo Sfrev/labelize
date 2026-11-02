@@ -8,7 +8,15 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "cli")]
 use clap::{Parser, Subcommand, ValueEnum};
 #[cfg(any(feature = "cli", feature = "serve"))]
-use labelize::{parse_labels, DrawerOptions, LabelInfo, Language, Renderer, ReverseLanguage};
+use labelize::{
+    parse_labels, DrawerOptions, LabelGuides, LabelInfo, LabelMargins, Language, Renderer,
+    ReverseLanguage,
+};
+
+#[cfg(feature = "cli")]
+fn parse_margins(s: &str) -> Result<LabelMargins, String> {
+    s.parse()
+}
 
 /// Historical default label dimensions, used when neither an explicit
 /// override nor the label's own declared size (TSPL SIZE) is available.
@@ -83,6 +91,15 @@ enum Commands {
         /// Emit 8-bit grayscale output preserving antialiasing (default: 1-bit)
         #[arg(long)]
         antialias: bool,
+
+        /// Overlay the label outline and printable area (colour output)
+        #[arg(long)]
+        guides: bool,
+
+        /// Label margins in mm for the guide overlay: one value for all
+        /// sides or "top,right,bottom,left". Implies --guides.
+        #[arg(long, value_parser = parse_margins)]
+        margins: Option<LabelMargins>,
     },
 
     /// Convert a raster image into ZPL or TSPL printer code (reverse rendering)
@@ -134,7 +151,12 @@ fn main() {
             height,
             dpmm,
             antialias,
+            guides,
+            margins,
         } => {
+            let guides = (guides || margins.is_some()).then(|| LabelGuides {
+                margins: margins.unwrap_or_default(),
+            });
             if let Err(e) = convert_file(
                 &input,
                 output.as_deref(),
@@ -144,6 +166,7 @@ fn main() {
                 height,
                 dpmm,
                 antialias,
+                guides,
             ) {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -303,6 +326,7 @@ fn convert_file(
     height: Option<f64>,
     dpmm: i32,
     antialias: bool,
+    guides: Option<LabelGuides>,
 ) -> Result<(), String> {
     let content = fs::read(input).map_err(|e| format!("Failed to read input file: {}", e))?;
 
@@ -324,6 +348,7 @@ fn convert_file(
                 .unwrap_or(DEFAULT_LABEL_HEIGHT_MM),
             dpmm,
             antialias,
+            guides,
             ..Default::default()
         };
 
@@ -451,6 +476,12 @@ async fn serve(host: String, port: u16) {
         /// Emit 8-bit grayscale output preserving antialiasing.
         #[serde(default)]
         antialias: bool,
+        /// Overlay the label outline and printable area (colour output).
+        #[serde(default)]
+        guides: bool,
+        /// Margins in mm: "2" or "top,right,bottom,left". Implies guides.
+        #[serde(default)]
+        margins: Option<String>,
     }
 
     fn default_dpmm() -> i32 {
@@ -482,12 +513,22 @@ async fn serve(host: String, port: u16) {
             None
         };
 
+        let margins = match params.margins.as_deref().map(str::parse::<LabelMargins>) {
+            Some(Err(msg)) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+            Some(Ok(m)) => Some(m),
+            None => None,
+        };
+        let guides = (params.guides || margins.is_some()).then(|| LabelGuides {
+            margins: margins.unwrap_or_default(),
+        });
+
         let options = labelize::RenderOptions {
             language,
             width_mm: params.width,
             height_mm: params.height,
             dpmm: params.dpmm,
             antialias: params.antialias,
+            guides,
         };
 
         // Parse failures are user input (400); render/encode failures are

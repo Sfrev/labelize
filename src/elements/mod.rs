@@ -25,6 +25,7 @@ pub mod graphic_field;
 pub mod graphic_symbol;
 pub mod invert_region;
 pub mod label_element;
+pub mod label_guides;
 pub mod label_info;
 pub mod label_position;
 pub mod line_color;

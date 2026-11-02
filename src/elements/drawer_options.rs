@@ -1,3 +1,5 @@
+use super::label_guides::LabelGuides;
+
 #[derive(Clone, Debug)]
 pub struct DrawerOptions {
     pub label_width_mm: f64,
@@ -8,6 +10,9 @@ pub struct DrawerOptions {
     /// Off by default: a thermal printer is bi-level, so 1-bit is the faithful
     /// default. Turn it on to match Labelary's antialiased PNG preview.
     pub antialias: bool,
+    /// Overlay the label outline and margins on the output (colour PNG).
+    /// `None` keeps the plain greyscale render.
+    pub guides: Option<LabelGuides>,
 }
 
 impl Default for DrawerOptions {
@@ -18,6 +23,7 @@ impl Default for DrawerOptions {
             dpmm: 8,
             enable_inverted_labels: true,
             antialias: false,
+            guides: None,
         }
     }
 }

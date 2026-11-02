@@ -104,6 +104,7 @@ fn http_encode_zpl_round_trip_is_pixel_identical() {
             height_mm: Some(203.25), // 1626 px @ 8 dpmm
             dpmm: 8,
             antialias: false,
+            guides: None,
         },
     )
     .expect("render generated ZPL");

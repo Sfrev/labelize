@@ -73,6 +73,9 @@ impl Renderer {
         let width_mm = options.label_width_mm;
         let height_mm = options.label_height_mm;
         let dpmm = options.dpmm;
+        if let Some(guides) = &options.guides {
+            guides.margins.validate(width_mm, height_mm)?;
+        }
 
         // A dot count converted through millimetres can land a few ULPs
         // above an integer (e.g. 7 / 24000 * 24000). Preserve that integer
@@ -192,8 +195,15 @@ impl Renderer {
         }
 
         let mut buf = Vec::new();
-        images::monochrome::encode_png_with(&canvas, &mut buf, options.antialias)
-            .map_err(|e| format!("failed to encode png: {}", e))?;
+        match &options.guides {
+            Some(guides) => {
+                let content = images::monochrome::to_luma(&canvas, options.antialias);
+                let preview = super::guides::overlay_guides(&content, guides, dpmm);
+                images::monochrome::encode_rgb_png(&preview, &mut buf)
+            }
+            None => images::monochrome::encode_png_with(&canvas, &mut buf, options.antialias),
+        }
+        .map_err(|e| format!("failed to encode png: {}", e))?;
         output
             .write_all(&buf)
             .map_err(|e| format!("failed to write png: {}", e))
