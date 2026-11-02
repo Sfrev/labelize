@@ -99,6 +99,20 @@ Datamax-O'Neil (now Honeywell) label formats: `<STX>L` opens a format, `E` termi
 **Unsupported (explicit error):** `Y` (stored images), polygons `P` and circles `C` in `X` records, `W1z`/`W1t`, legacy DataMatrix qualities and unequal module dimensions, QR structured append/hex-ASCII, non-UTF-8 PDF417 payloads, Codabar `I`, Plessey `K`, Code 93 `O`, Telepen `T`, Postnet `p`, FIM `v`, addenda `M`/`N`, MaxiCode structured `[)>RS…` form
 **Reference renderer:** no printer-grade public renderer exists; the hosted Evolabel layout view (layoutview.evolabel.com, ~11.8 px/mm server preview) serves as the external comparison for the real-provenance corpus, renderer-baseline otherwise. Real-provenance corpus (manual Appendix B samples) and reference details: [docs/CPCL_DPL_CORPUS.md](docs/CPCL_DPL_CORPUS.md).
 
+## `.nlbl` Design Files (feature `nlbl`)
+
+`src/parsers/nlbl/` reads only the physical stock from ZebraDesigner/NiceLabel
+design files — never drawable content (that still comes from the exported
+ZPL). The archive is a ZIP with AES-256 entries; **the password is never
+committed**: callers pass it in, the CLI reads `LABELIZE_NLBL_PASSWORD` from the
+environment or a git-ignored `.env`, and tests build their own archives with a
+throwaway password. Field map (lengths in µm): `Media/Width|Height` = stock,
+`PageLayout/ElementWidth|Height` = design area at
+`HorizontalOffset`/`VerticalOffset` (right/bottom margins are the remainder),
+printer dpi from the base64 DEVMODE in `Printer/DevModeBuffer`, else the
+`…-300dpi` driver name. Output feeds `LabelGuides` and the canvas size/dpmm.
+Tests: `tests/unit_nlbl.rs` (`--features nlbl`).
+
 ## Reverse Rendering (Image → Code)
 
 `src/reverse.rs` is the inverse of the render pipeline: a raster goes in, printer-language source comes out. It emits text/bytes directly and never touches `elements`/`drawers`, so the language-blind-IR invariants don't apply to it.

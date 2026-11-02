@@ -263,6 +263,7 @@ Usage: labelize <COMMAND>
 
 Commands:
   convert  Convert a ZPL/EPL/TSPL/CPCL/DPL file to PNG or PDF
+  nlbl     Print the label size, margins and printer resolution of a .nlbl file
   serve    Start HTTP server for label conversion
 
 Convert Options:
@@ -272,10 +273,30 @@ Convert Options:
   -t, --type <TYPE>     Output type: png | pdf [default: png]
   --width <MM>          Label width in mm [default: 102; TSPL: from SIZE, CPCL: from PAGE-WIDTH]
   --height <MM>         Label height in mm [default: 152; TSPL: from SIZE, CPCL: from header]
-  --dpmm <N>            Dots per mm: 6, 8, 12, or 24 [default: 8]
+  --dpmm <N>            Dots per mm: 6, 8, 12, or 24 [default: from --nlbl, else 8]
   --antialias           8-bit grayscale output (default: 1-bit)
   --guides              Overlay the label outline and printable area (colour output)
   --margins <MM>        Margins for the overlay: "2" or "top,right,bottom,left"; implies --guides
+  --nlbl <PATH>         ZebraDesigner .nlbl design file: label size, margins and dpmm
+                        (explicit flags win); implies --guides
+```
+
+**`.nlbl` design files.** Printer languages don't record the label stock, but
+ZebraDesigner/NiceLabel design files do. `--nlbl` reads the label size,
+margins and printer resolution from one and draws them over the render of the
+ZPL it exports:
+
+```bash
+labelize nlbl label.nlbl                       # width_mm=66 … dpi=300 dpmm=12
+labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm @ 12 dpmm + guides
+```
+
+The archive inside a `.nlbl` is password-protected and labelize does not ship
+that password: set `LABELIZE_NLBL_PASSWORD` in the environment or in a local,
+git-ignored `.env` (see [.env.example](.env.example)). Only the stock is read
+from the design file — content still comes from the exported ZPL.
+
+```
 
 Serve Options:
   --host <HOST>         Bind address [default: 0.0.0.0]

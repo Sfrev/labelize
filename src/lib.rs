@@ -36,6 +36,8 @@ pub use images::pdf::encode_pdf;
 pub use lang::{
     detect_language, format_source, parse_labels, validate, Language, ValidationReport,
 };
+#[cfg(feature = "nlbl")]
+pub use parsers::nlbl::{parse_nlbl, NlblLayout};
 pub use parsers::{CpclParser, DplParser, EplParser, TsplParser, ZplParser};
 pub use render::{
     render_pdf, render_png, RenderOptions, Rendered, DEFAULT_LABEL_HEIGHT_MM,

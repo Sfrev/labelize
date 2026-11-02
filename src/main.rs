@@ -18,6 +18,28 @@ fn parse_margins(s: &str) -> Result<LabelMargins, String> {
     s.parse()
 }
 
+/// Read a .nlbl design file with the password from the environment, or
+/// from a `KEY=value` line in `./.env` (labelize never ships the password).
+#[cfg(feature = "cli")]
+fn read_nlbl(path: &Path) -> Result<labelize::NlblLayout, String> {
+    use labelize::parsers::nlbl::PASSWORD_ENV;
+
+    let password = std::env::var(PASSWORD_ENV).ok().or_else(|| {
+        let env_file = fs::read_to_string(".env").ok()?;
+        env_file.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == PASSWORD_ENV).then(|| value.trim().trim_matches('"').to_string())
+        })
+    });
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    labelize::parse_nlbl(&bytes, password.unwrap_or_default().as_bytes()).map_err(|e| {
+        format!(
+            "{}: {e} (set {PASSWORD_ENV} in the environment or ./.env)",
+            path.display()
+        )
+    })
+}
+
 /// Historical default label dimensions, used when neither an explicit
 /// override nor the label's own declared size (TSPL SIZE) is available.
 #[cfg(any(feature = "cli", feature = "serve"))]
@@ -84,9 +106,9 @@ enum Commands {
         #[arg(long)]
         height: Option<f64>,
 
-        /// Dots per mm (6, 8, 12, or 24)
-        #[arg(long, default_value_t = 8)]
-        dpmm: i32,
+        /// Dots per mm (6, 8, 12, or 24) [default: from --nlbl, else 8]
+        #[arg(long)]
+        dpmm: Option<i32>,
 
         /// Emit 8-bit grayscale output preserving antialiasing (default: 1-bit)
         #[arg(long)]
@@ -100,6 +122,19 @@ enum Commands {
         /// sides or "top,right,bottom,left". Implies --guides.
         #[arg(long, value_parser = parse_margins)]
         margins: Option<LabelMargins>,
+
+        /// ZebraDesigner/NiceLabel .nlbl design file: supplies the label
+        /// size, margins and printer dpmm (explicit flags still win) and
+        /// turns on the guide overlay. Password from LABELIZE_NLBL_PASSWORD
+        /// (environment or ./.env).
+        #[arg(long)]
+        nlbl: Option<PathBuf>,
+    },
+
+    /// Print the label size, margins and printer resolution of a .nlbl file
+    Nlbl {
+        /// Input .nlbl file path
+        input: PathBuf,
     },
 
     /// Convert a raster image into ZPL or TSPL printer code (reverse rendering)
@@ -153,7 +188,20 @@ fn main() {
             antialias,
             guides,
             margins,
+            nlbl,
         } => {
+            let layout = match nlbl.as_deref().map(read_nlbl).transpose() {
+                Ok(layout) => layout,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            // Explicit flags win over what the design file says.
+            let width = width.or(layout.as_ref().map(|l| l.width_mm));
+            let height = height.or(layout.as_ref().map(|l| l.height_mm));
+            let dpmm = dpmm.or(layout.as_ref().and_then(|l| l.dpmm())).unwrap_or(8);
+            let margins = margins.or(layout.as_ref().map(|l| l.margins));
             let guides = (guides || margins.is_some()).then(|| LabelGuides {
                 margins: margins.unwrap_or_default(),
             });
@@ -172,6 +220,30 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Nlbl { input } => match read_nlbl(&input) {
+            Ok(l) => {
+                let m = l.margins;
+                println!("width_mm={}", l.width_mm);
+                println!("height_mm={}", l.height_mm);
+                println!(
+                    "margins_mm={},{},{},{}",
+                    m.top_mm, m.right_mm, m.bottom_mm, m.left_mm
+                );
+                if let Some(dpi) = l.dpi {
+                    println!("dpi={dpi}");
+                }
+                if let Some(dpmm) = l.dpmm() {
+                    println!("dpmm={dpmm}");
+                }
+                if let Some(printer) = &l.printer {
+                    println!("printer={printer}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
         Commands::Encode {
             input,
             output,
