@@ -9,7 +9,8 @@
 //! - `PageLayout/ElementWidth`, `ElementHeight`: the label itself, as entered
 //!   under "Label dimensions" in the designer.
 //! - `PageLayout/HorizontalOffset`, `VerticalOffset`: left and top margins;
-//!   right and bottom are what remains of the page around the label.
+//!   right and bottom are what remains of the page around the label. The
+//!   designer omits an offset that is 0.
 //! - `PageLayout/HorizontalRadius`, `VerticalRadius`: the label's corner
 //!   radius (the designer's "Radius" group); absent or 0 = square corners.
 //! - `PrintScenario…/Printer/DevModeBuffer`: base64 DEVMODEW; its print
@@ -117,8 +118,9 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
     // Without a PageLayout the label fills the page.
     let (label_width_mm, label_height_mm, margins, radius) = match child(root, "PageLayout") {
         Some(layout) => {
-            let left = length_mm(layout, "HorizontalOffset")?;
-            let top = length_mm(layout, "VerticalOffset")?;
+            // The designer leaves a zero margin out of the file.
+            let left = optional_length_mm(layout, "HorizontalOffset")?;
+            let top = optional_length_mm(layout, "VerticalOffset")?;
             let label_w = length_mm(layout, "ElementWidth")?;
             let label_h = length_mm(layout, "ElementHeight")?;
             let margins = LabelMargins {
@@ -192,7 +194,8 @@ fn missing(what: &str) -> LabelizeError {
     LabelizeError::Parse(format!(".nlbl format XML has no <{what}>"))
 }
 
-/// A length that may be absent (older files, square labels): absent = 0.
+/// A length that may be absent (zero margins, older files, square labels):
+/// absent = 0.
 fn optional_length_mm(node: Node, name: &str) -> Result<f64, LabelizeError> {
     match child(node, name) {
         Some(_) => length_mm(node, name),
@@ -266,6 +269,25 @@ mod tests {
         assert_eq!(dpi_from_name("ZDesigner GK420t 203 DPI"), None);
         assert_eq!(dpi_from_name("ZDesigner ZT410-203dpi ZPL"), Some(203));
         assert_eq!(dpi_from_name("Generic text"), None);
+    }
+
+    #[test]
+    fn missing_offset_is_a_zero_margin() {
+        // ZebraDesigner 3 writes no <VerticalOffset> for a label with no top margin.
+        let xml = r#"<Format>
+            <Media><Width>84000</Width><Height>162000</Height></Media>
+            <PageLayout>
+                <ElementWidth>80000</ElementWidth>
+                <ElementHeight>162000</ElementHeight>
+                <HorizontalOffset>2000</HorizontalOffset>
+            </PageLayout>
+        </Format>"#;
+        let layout = parse_format_xml(xml).unwrap();
+        assert_eq!(layout.margins.top_mm, 0.0);
+        assert_eq!(layout.margins.bottom_mm, 0.0);
+        assert_eq!(layout.margins.left_mm, 2.0);
+        assert_eq!(layout.margins.right_mm, 2.0);
+        assert_eq!(layout.label_height_mm, 162.0);
     }
 
     #[test]
