@@ -8,8 +8,11 @@
 //!   margins; the DEVMODE paper size agrees in tenths of a millimetre).
 //! - `PageLayout/ElementWidth`, `ElementHeight`: the label itself, as entered
 //!   under "Label dimensions" in the designer.
+//!   When one is absent the label takes the rest of the page after its
+//!   offset.
 //! - `PageLayout/HorizontalOffset`, `VerticalOffset`: left and top margins;
-//!   right and bottom are what remains of the page around the label.
+//!   right and bottom are what remains of the page around the label. The
+//!   designer omits an offset that is 0.
 //! - `PageLayout/HorizontalRadius`, `VerticalRadius`: the label's corner
 //!   radius (the designer's "Radius" group); absent or 0 = square corners.
 //! - `PrintScenario…/Printer/DevModeBuffer`: base64 DEVMODEW; its print
@@ -117,10 +120,12 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
     // Without a PageLayout the label fills the page.
     let (label_width_mm, label_height_mm, margins, radius) = match child(root, "PageLayout") {
         Some(layout) => {
-            let left = length_mm(layout, "HorizontalOffset")?;
-            let top = length_mm(layout, "VerticalOffset")?;
-            let label_w = length_mm(layout, "ElementWidth")?;
-            let label_h = length_mm(layout, "ElementHeight")?;
+            // The designer leaves a zero margin out of the file.
+            let left = optional_length_mm(layout, "HorizontalOffset")?;
+            let top = optional_length_mm(layout, "VerticalOffset")?;
+            // Without a size the label takes the page the offsets leave.
+            let label_w = maybe_length_mm(layout, "ElementWidth")?.unwrap_or(page_width_mm - left);
+            let label_h = maybe_length_mm(layout, "ElementHeight")?.unwrap_or(page_height_mm - top);
             let margins = LabelMargins {
                 left_mm: left,
                 top_mm: top,
@@ -192,11 +197,17 @@ fn missing(what: &str) -> LabelizeError {
     LabelizeError::Parse(format!(".nlbl format XML has no <{what}>"))
 }
 
-/// A length that may be absent (older files, square labels): absent = 0.
+/// A length that may be absent (zero margins, older files, square labels):
+/// absent = 0.
 fn optional_length_mm(node: Node, name: &str) -> Result<f64, LabelizeError> {
+    Ok(maybe_length_mm(node, name)?.unwrap_or(0.0))
+}
+
+/// A length that may be absent; a present but malformed one is still an error.
+fn maybe_length_mm(node: Node, name: &str) -> Result<Option<f64>, LabelizeError> {
     match child(node, name) {
-        Some(_) => length_mm(node, name),
-        None => Ok(0.0),
+        Some(_) => length_mm(node, name).map(Some),
+        None => Ok(None),
     }
 }
 
@@ -241,19 +252,26 @@ fn devmode_dpi(b64: &str) -> Option<u32> {
     quality.or(y_res)
 }
 
-/// `ZDesigner ZD621-300dpi ZPL` → 300.
+/// `ZDesigner ZD621-300dpi ZPL` → 300; `ZDesigner GK420t 203 DPI` → 203.
 fn dpi_from_name(name: &str) -> Option<u32> {
     let lower = name.to_ascii_lowercase();
     let end = lower.find("dpi")?;
-    let digits: String = lower[..end]
+    let before = lower[..end].trim_end_matches([' ', '-']);
+    let digits_start = before
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_ascii_digit())
+        .last()
+        .map(|(i, _)| i)?;
+    // `ZD621 DPI` is a model number, not a resolution.
+    if before[..digits_start]
         .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_digit())
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    digits.parse().ok().filter(|dpi| *dpi > 0)
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    before[digits_start..].parse().ok().filter(|dpi| *dpi > 0)
 }
 
 #[cfg(test)]
@@ -263,9 +281,56 @@ mod tests {
     #[test]
     fn dpi_from_driver_names() {
         assert_eq!(dpi_from_name("ZDesigner ZD621-300dpi ZPL"), Some(300));
-        assert_eq!(dpi_from_name("ZDesigner GK420t 203 DPI"), None);
+        assert_eq!(dpi_from_name("ZDesigner GK420t 203 DPI"), Some(203));
         assert_eq!(dpi_from_name("ZDesigner ZT410-203dpi ZPL"), Some(203));
+        assert_eq!(dpi_from_name("ZDesigner ZT410 300-dpi"), Some(300));
+        assert_eq!(dpi_from_name("ZDesigner ZD621 DPI"), None);
         assert_eq!(dpi_from_name("Generic text"), None);
+    }
+
+    #[test]
+    fn missing_offset_is_a_zero_margin() {
+        // ZebraDesigner 3 writes no <VerticalOffset> for a label with no top margin.
+        let xml = r#"<Format>
+            <Media><Width>84000</Width><Height>162000</Height></Media>
+            <PageLayout>
+                <ElementWidth>80000</ElementWidth>
+                <ElementHeight>162000</ElementHeight>
+                <HorizontalOffset>2000</HorizontalOffset>
+            </PageLayout>
+        </Format>"#;
+        let layout = parse_format_xml(xml).unwrap();
+        assert_eq!(layout.margins.top_mm, 0.0);
+        assert_eq!(layout.margins.bottom_mm, 0.0);
+        assert_eq!(layout.margins.left_mm, 2.0);
+        assert_eq!(layout.margins.right_mm, 2.0);
+        assert_eq!(layout.label_height_mm, 162.0);
+    }
+
+    #[test]
+    fn missing_label_size_takes_the_page_after_its_offset() {
+        let xml = r#"<Format>
+            <Media><Width>84000</Width><Height>162000</Height></Media>
+            <PageLayout>
+                <ElementHeight>160000</ElementHeight>
+                <HorizontalOffset>2000</HorizontalOffset>
+                <VerticalOffset>1000</VerticalOffset>
+            </PageLayout>
+        </Format>"#;
+        let layout = parse_format_xml(xml).unwrap();
+        assert_eq!(layout.label_width_mm, 82.0);
+        assert_eq!(layout.label_height_mm, 160.0);
+        assert_eq!(layout.margins.right_mm, 0.0);
+        assert_eq!(layout.margins.bottom_mm, 1.0);
+    }
+
+    #[test]
+    fn malformed_label_size_is_still_an_error() {
+        let xml = r#"<Format>
+            <Media><Width>84000</Width><Height>162000</Height></Media>
+            <PageLayout><ElementWidth>abc</ElementWidth></PageLayout>
+        </Format>"#;
+        assert!(parse_format_xml(xml).is_err());
     }
 
     #[test]
