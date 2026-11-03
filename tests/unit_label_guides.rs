@@ -36,7 +36,7 @@ fn without_guides_output_stays_greyscale() {
 }
 
 #[test]
-fn guides_draw_outline_printable_area_and_margin_tint() {
+fn guides_draw_page_label_border_and_margins() {
     let out = render_png(BOX_IN_MARGIN, options(Some(LabelMargins::uniform(2.0)))).expect("render");
     let img = image::load_from_memory(&out.bytes).unwrap();
     assert_eq!(img.color(), image::ColorType::Rgb8, "guides need colour");
@@ -47,25 +47,29 @@ fn guides_draw_outline_printable_area_and_margin_tint() {
         "guides never resize the label"
     );
 
-    // Solid outline on every edge.
+    // Thin page edge all round.
     for (x, y) in [(0, 0), (399, 0), (0, 239), (399, 239), (200, 0), (0, 50)] {
-        assert_eq!(img.get_pixel(x, y).0, [220, 0, 0], "outline at ({x},{y})");
+        assert_eq!(
+            img.get_pixel(x, y).0,
+            [190, 186, 120],
+            "page edge at ({x},{y})"
+        );
     }
-    // Printable-area border starts 16 dots in; dashes are 8 dots (1 mm) long.
-    assert_eq!(img.get_pixel(16, 20).0, [0, 102, 255], "dash on");
-    assert_eq!(img.get_pixel(16, 28).0, [255, 255, 255], "dash gap");
+    // Solid label border 16 dots in (no dashes), page colour just outside it.
+    assert_eq!(img.get_pixel(16, 20).0, [0, 0, 0], "left border");
+    assert_eq!(img.get_pixel(16, 28).0, [0, 0, 0], "border is solid");
     assert_eq!(
         img.get_pixel(15, 28).0,
-        [255, 207, 207],
+        [253, 251, 194],
         "margin side of the border"
     );
-    assert_eq!(img.get_pixel(383, 20).0, [0, 102, 255], "right border");
-    // Paper inside the printable area is untouched, margin paper is tinted.
+    assert_eq!(img.get_pixel(383, 20).0, [0, 0, 0], "right border");
+    // Paper on the label stays white; margin paper takes the page yellow.
     assert_eq!(img.get_pixel(200, 60).0, [255, 255, 255]);
-    assert_eq!(img.get_pixel(8, 60).0, [255, 207, 207]);
-    // Ink keeps its colour inside, and turns dark red where it hits the margin.
+    assert_eq!(img.get_pixel(8, 60).0, [253, 251, 194]);
+    // Ink stays black on the label and in the margin.
     assert_eq!(img.get_pixel(30, 120).0, [0, 0, 0]);
-    assert_eq!(img.get_pixel(8, 120).0, [64, 16, 16]);
+    assert_eq!(img.get_pixel(8, 120).0, [0, 0, 0]);
 }
 
 #[test]
@@ -73,12 +77,8 @@ fn asymmetric_margins_land_on_their_own_sides() {
     // top,right,bottom,left = 0,0,0,10 → only a left band of 80 dots.
     let margins: LabelMargins = "0,0,0,10".parse().unwrap();
     let img = rgb(&render_png(BLANK, options(Some(margins))).unwrap().bytes);
-    assert_eq!(img.get_pixel(79, 60).0, [255, 207, 207], "inside left band");
-    assert_eq!(
-        img.get_pixel(80, 4).0,
-        [0, 102, 255],
-        "left border at 10 mm"
-    );
+    assert_eq!(img.get_pixel(79, 60).0, [253, 251, 194], "inside left band");
+    assert_eq!(img.get_pixel(80, 4).0, [0, 0, 0], "left border at 10 mm");
     assert_eq!(img.get_pixel(81, 60).0, [255, 255, 255], "printable paper");
     assert_eq!(img.get_pixel(390, 60).0, [255, 255, 255], "no right band");
 }
@@ -88,7 +88,7 @@ fn zero_margins_draw_only_the_outline() {
     let img = rgb(&render_png(BLANK, options(Some(LabelMargins::default())))
         .unwrap()
         .bytes);
-    assert_eq!(img.get_pixel(0, 0).0, [220, 0, 0]);
+    assert_eq!(img.get_pixel(0, 0).0, [190, 186, 120]);
     assert_eq!(img.get_pixel(1, 1).0, [255, 255, 255]);
 }
 
@@ -149,26 +149,25 @@ fn rounded_corners_tint_the_cut_off_corner() {
     let img = rgb(&render_png(BLANK, rounded(CornerRadius::uniform(2.0)))
         .unwrap()
         .bytes);
-    // The corner tip is off the die-cut label, so it is tinted like a margin.
-    assert_eq!(img.get_pixel(17, 17).0, [255, 207, 207], "cut-off corner");
+    // The corner tip is off the die-cut label, so it shows the page colour.
+    assert_eq!(img.get_pixel(17, 17).0, [253, 251, 194], "cut-off corner");
     assert_eq!(
         img.get_pixel(382, 222).0,
-        [255, 207, 207],
+        [253, 251, 194],
         "opposite corner"
     );
     // Just inside the arc is paper.
     assert_eq!(img.get_pixel(26, 26).0, [255, 255, 255], "inside the arc");
-    // The dashed border follows the arc through the corner box, and never
-    // touches the corner square's outer tip.
+    // The border follows the arc through the corner square, and never
+    // touches the square's outer tip.
     let arc_dots = (16..32)
         .flat_map(|y| (16..32).map(move |x| (x, y)))
-        .filter(|&(x, y)| img.get_pixel(x, y).0 == [0, 102, 255])
+        .filter(|&(x, y)| img.get_pixel(x, y).0 == [0, 0, 0])
         .count();
-    assert!(arc_dots > 0, "dashed border follows the arc");
-    assert_ne!(img.get_pixel(16, 16).0, [0, 102, 255], "no square corner");
-    // Straight edges are unchanged: the top border still starts 16 dots
-    // down (x = 48 is 32 dots along, inside the fifth 8-dot dash).
-    assert_eq!(img.get_pixel(48, 16).0, [0, 102, 255], "straight edge");
+    assert!(arc_dots > 0, "border follows the arc");
+    assert_ne!(img.get_pixel(16, 16).0, [0, 0, 0], "no square corner");
+    // Straight edges are unchanged: the top border still starts 16 dots down.
+    assert_eq!(img.get_pixel(48, 16).0, [0, 0, 0], "straight edge");
 }
 
 #[test]
@@ -186,7 +185,7 @@ fn oversized_radius_is_clamped_to_half_the_label() {
         .unwrap()
         .bytes);
     assert_eq!(img.get_pixel(200, 120).0, [255, 255, 255], "centre");
-    assert_eq!(img.get_pixel(20, 20).0, [255, 207, 207], "corner");
+    assert_eq!(img.get_pixel(20, 20).0, [253, 251, 194], "corner");
 }
 
 #[test]

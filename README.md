@@ -224,10 +224,10 @@ labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guide
 
 The designer places the label on a page with margins around it (a 60 × 30 mm
 label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
-that page, so it is the canvas; the dashed guide marks the label and the
-tinted band the margins. A rounded die cut (the designer's "Radius" group)
-rounds the dashed guide and tints the cut-off corners too. Sizes land on the
-printer's own dots: a 300-dpi
+that page, so it is the canvas. The overlay mirrors the designer's canvas:
+the page shows pale yellow around the label, and the label is white stock
+with a solid border, rounded when the die cut has a corner radius (the
+designer's "Radius" group). Sizes land on the printer's own dots: a 300-dpi
 printer has 11.81 dots/mm, so that page renders at the designer's
 `^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
 

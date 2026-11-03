@@ -124,10 +124,10 @@ impl std::str::FromStr for CornerRadius {
     }
 }
 
-/// Preview overlay drawn on top of the rendered label: the label outline,
-/// the printable area inside `margins` (with rounded corners when `radius`
-/// is set), and a tint over the margin bands and cut-off corners so ink that
-/// strays into them stands out.
+/// Preview overlay drawn on top of the rendered label, styled like the
+/// label designer's canvas: the page shows pale yellow in the margins and
+/// in the corners a rounded die cut leaves off, and the label inside
+/// `margins` gets a solid border (rounded when `radius` is set).
 ///
 /// Guides are not ink. When they are enabled the PNG is encoded in colour so
 /// the overlay stays distinguishable from the label content.
