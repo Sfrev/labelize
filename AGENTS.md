@@ -110,6 +110,8 @@ throwaway password. Field map (lengths in µm, confirmed against the
 designer's "Label dimensions" dialog): `Media/Width|Height` = page (label +
 margins, the canvas), `PageLayout/ElementWidth|Height` = the label itself at
 `HorizontalOffset`/`VerticalOffset` (right/bottom margins are the remainder),
+`PageLayout/HorizontalRadius|VerticalRadius` = the label's corner radius
+(drawn as rounded guides; absent = square),
 printer dpi from the base64 DEVMODE in `Printer/DevModeBuffer`, else the
 `…-300dpi` driver name. Output feeds `LabelGuides` and the canvas size/dpmm;
 `render_page_mm`/`render_margins` re-express them on the printer's dot grid

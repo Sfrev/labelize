@@ -1,4 +1,6 @@
-//! Preview overlay: label outline, printable area and margin bands.
+//! Preview overlay in the style of the label designer's canvas: the page
+//! (label + margins) in pale yellow, the label as white stock with a solid
+//! dark border, rounded when the die cut has a corner radius.
 //!
 //! Drawn over the finished, flattened label (after print-width centering,
 //! inversion and mirroring), so the guides describe the physical stock in
@@ -8,18 +10,18 @@ use image::{GrayImage, Rgb, RgbImage};
 
 use crate::elements::label_guides::LabelGuides;
 
-/// Solid outline on the label edge.
-const OUTLINE: Rgb<u8> = Rgb([220, 0, 0]);
-/// Dashed border of the printable area.
-const PRINTABLE: Rgb<u8> = Rgb([0, 102, 255]);
-/// Colour blended over the margin bands, and how strongly (0-255).
-const MARGIN_TINT: Rgb<u8> = Rgb([255, 64, 64]);
-const MARGIN_TINT_ALPHA: u16 = 64;
-/// Dash and gap length of the printable-area border, in millimetres.
-const DASH_MM: f64 = 1.0;
+/// Page colour outside the label (margins and cut-off corners), sampled from
+/// ZebraDesigner's canvas. Multiplied in, so white paper takes exactly this
+/// colour and ink stays dark.
+const PAGE: Rgb<u8> = Rgb([253, 251, 194]);
+/// Thin edge around the whole page.
+const PAGE_EDGE: Rgb<u8> = Rgb([190, 186, 120]);
+/// Solid border of the label (the area inside the margins).
+const LABEL_EDGE: Rgb<u8> = Rgb([0, 0, 0]);
 
 /// Colour the flattened label and draw `guides` over it. `dpmm` converts the
-/// margins to dots; the label is assumed to fill `content` edge to edge.
+/// margins and corner radius to dots; the page is assumed to fill `content`
+/// edge to edge.
 pub fn overlay_guides(content: &GrayImage, guides: &LabelGuides, dpmm: i32) -> RgbImage {
     let (width, height) = content.dimensions();
     let mut out = RgbImage::from_fn(width, height, |x, y| {
@@ -32,29 +34,47 @@ pub fn overlay_guides(content: &GrayImage, guides: &LabelGuides, dpmm: i32) -> R
 
     let dots = |mm: f64| (mm * dpmm as f64).round().max(0.0) as u32;
     let m = guides.margins;
-    // Printable area as a half-open dot range, clamped to the canvas.
+    // The label as a half-open dot range, clamped to the canvas.
     let x0 = dots(m.left_mm).min(width);
     let y0 = dots(m.top_mm).min(height);
     let x1 = width.saturating_sub(dots(m.right_mm)).max(x0);
     let y1 = height.saturating_sub(dots(m.bottom_mm)).max(y0);
+    // Corner radii in dots, clamped so opposite corners never overlap.
+    let radius = |mm: f64, span: u32| (mm * dpmm as f64).max(0.0).min(span as f64 / 2.0);
+    let label = RoundedBox {
+        x0,
+        y0,
+        x1,
+        y1,
+        rx: radius(guides.radius.x_mm, x1 - x0),
+        ry: radius(guides.radius.y_mm, y1 - y0),
+    };
 
+    // The page shows around the label: margins and the cut-off corners.
     for (x, y, px) in out.enumerate_pixels_mut() {
-        if x < x0 || x >= x1 || y < y0 || y >= y1 {
-            *px = blend(*px, MARGIN_TINT, MARGIN_TINT_ALPHA);
+        if !label.contains(x as f64 + 0.5, y as f64 + 0.5) {
+            *px = multiply(*px, PAGE);
         }
     }
 
-    let stroke = (dpmm / 8).max(1) as u32;
-    let dash = dots(DASH_MM).max(1);
+    let stroke = (dpmm / 6).max(1) as u32;
     if x1 > x0 && y1 > y0 {
-        dashed_rect(&mut out, x0, y0, x1, y1, stroke, dash, PRINTABLE);
+        border(&mut out, &label, stroke, LABEL_EDGE);
     }
-    dashed_rect(&mut out, 0, 0, width, height, stroke, u32::MAX, OUTLINE);
+    let page = RoundedBox {
+        x0: 0,
+        y0: 0,
+        x1: width,
+        y1: height,
+        rx: 0.0,
+        ry: 0.0,
+    };
+    border(&mut out, &page, 1, PAGE_EDGE);
     out
 }
 
-fn blend(base: Rgb<u8>, tint: Rgb<u8>, alpha: u16) -> Rgb<u8> {
-    let mix = |b: u8, t: u8| ((b as u16 * (255 - alpha) + t as u16 * alpha) / 255) as u8;
+fn multiply(base: Rgb<u8>, tint: Rgb<u8>) -> Rgb<u8> {
+    let mix = |b: u8, t: u8| ((b as u16 * t as u16 + 127) / 255) as u8;
     Rgb([
         mix(base[0], tint[0]),
         mix(base[1], tint[1]),
@@ -62,35 +82,53 @@ fn blend(base: Rgb<u8>, tint: Rgb<u8>, alpha: u16) -> Rgb<u8> {
     ])
 }
 
-/// Rectangle border `stroke` dots thick, drawn inward from the half-open box
-/// `[x0, x1) × [y0, y1)`. `dash` is the on/off run length; `u32::MAX` is solid.
-#[allow(clippy::too_many_arguments)]
-fn dashed_rect(
-    img: &mut RgbImage,
+/// Half-open dot box `[x0, x1) × [y0, y1)` whose corners are quarter
+/// ellipses with radii `rx` × `ry` dots (0 = square).
+struct RoundedBox {
     x0: u32,
     y0: u32,
     x1: u32,
     y1: u32,
-    stroke: u32,
-    dash: u32,
-    color: Rgb<u8>,
-) {
-    let on = |i: u32| dash == u32::MAX || (i / dash).is_multiple_of(2);
-    let stroke_x = stroke.min(x1 - x0);
-    let stroke_y = stroke.min(y1 - y0);
-    for x in x0..x1 {
-        if on(x - x0) {
-            for t in 0..stroke_y {
-                img.put_pixel(x, y0 + t, color);
-                img.put_pixel(x, y1 - 1 - t, color);
-            }
+    rx: f64,
+    ry: f64,
+}
+
+impl RoundedBox {
+    /// Whether the point `(px, py)`, in dots, lies inside the box shrunk by
+    /// `inset_x` / `inset_y` dots on each side (the radii shrink with it).
+    fn contains_inset(&self, px: f64, py: f64, inset_x: f64, inset_y: f64) -> bool {
+        let (l, t) = (self.x0 as f64 + inset_x, self.y0 as f64 + inset_y);
+        let (r, b) = (self.x1 as f64 - inset_x, self.y1 as f64 - inset_y);
+        if px < l || px >= r || py < t || py >= b {
+            return false;
         }
+        let (rx, ry) = (self.rx - inset_x, self.ry - inset_y);
+        if rx <= 0.0 || ry <= 0.0 {
+            return true;
+        }
+        // Offset from the centre of the corner ellipse, when in a corner square.
+        let dx = (l + rx - px).max(px - (r - rx));
+        let dy = (t + ry - py).max(py - (b - ry));
+        if dx <= 0.0 || dy <= 0.0 {
+            return true;
+        }
+        (dx / rx).powi(2) + (dy / ry).powi(2) <= 1.0
     }
-    for y in y0..y1 {
-        if on(y - y0) {
-            for t in 0..stroke_x {
-                img.put_pixel(x0 + t, y, color);
-                img.put_pixel(x1 - 1 - t, y, color);
+
+    fn contains(&self, px: f64, py: f64) -> bool {
+        self.contains_inset(px, py, 0.0, 0.0)
+    }
+}
+
+/// Solid border `stroke` dots thick, drawn inward from `shape`'s edge.
+fn border(img: &mut RgbImage, shape: &RoundedBox, stroke: u32, color: Rgb<u8>) {
+    let stroke_x = stroke.min(shape.x1 - shape.x0) as f64;
+    let stroke_y = stroke.min(shape.y1 - shape.y0) as f64;
+    for y in shape.y0..shape.y1 {
+        for x in shape.x0..shape.x1 {
+            let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+            if shape.contains(px, py) && !shape.contains_inset(px, py, stroke_x, stroke_y) {
+                img.put_pixel(x, y, color);
             }
         }
     }

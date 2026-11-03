@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rounded label corners in the guide overlay**: `LabelGuides::radius`
+  (`CornerRadius { x_mm, y_mm }`) rounds the label border with
+  quarter-ellipse corners; the corners a die cut leaves off show the page
+  colour, like the margins. `.nlbl` files supply it from `PageLayout/HorizontalRadius` /
+  `VerticalRadius` (the designer's "Radius" group); otherwise
+  `labelize convert --radius 1` (or `h,v`) and `POST /convert?radius=…`.
+  `POST /nlbl` reports `radius_mm` and adds `radius` to `convert_query`.
+  Zero radius renders exactly as before.
+
 - **`.nlbl` design-file layout** (feature `nlbl`, on with `cli`):
   `labelize::parse_nlbl(bytes, password)` reads the label size, its margins,
   the resulting page size (label + margins) and printer dpi (Windows DEVMODE, else the driver name) from a
@@ -22,8 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Label outline and margin guides**: `DrawerOptions::guides` /
   `RenderOptions::guides` (`LabelGuides { margins: LabelMargins }`) overlay
-  the label edge, a dashed printable-area border and a tint over the margin
-  bands, so ink that strays outside the printable area stands out. Printer
+  the stock in the style of ZebraDesigner's canvas: the page (margins) in
+  pale yellow, the label inside them as white stock with a solid border, and
+  a thin page edge. Printer
   languages don't carry the stock's margins, so the caller supplies them.
   Exposed as `labelize convert --guides` / `--margins 2` (or
   `top,right,bottom,left`) and `POST /convert?guides=true&margins=…`. Output

@@ -74,3 +74,15 @@ pub fn archive(format: &str, password: Option<&'static str>) -> Vec<u8> {
     zip.write_all(b"<EuroPlus.NiceLabel />").unwrap();
     zip.finish().unwrap().into_inner()
 }
+
+/// Add the designer's corner radius (µm, horizontal then vertical) to a
+/// [`format_xml`] document.
+pub fn with_radius(xml: &str, horizontal: u32, vertical: u32) -> String {
+    xml.replace(
+        "</PageLayout>",
+        &format!(
+            "  <HorizontalRadius>{horizontal}</HorizontalRadius>\n    \
+             <VerticalRadius>{vertical}</VerticalRadius>\n  </PageLayout>"
+        ),
+    )
+}

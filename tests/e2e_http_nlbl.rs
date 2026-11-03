@@ -11,7 +11,7 @@
 
 #[path = "common/nlbl_fixtures.rs"]
 mod nlbl_fixtures;
-use nlbl_fixtures::{archive, format_xml, zd621_300dpi, TEST_PASSWORD};
+use nlbl_fixtures::{archive, format_xml, with_radius, zd621_300dpi, TEST_PASSWORD};
 
 struct ServerGuard {
     child: std::process::Child,
@@ -80,7 +80,8 @@ fn start_server(password: Option<&str>) -> (ServerGuard, reqwest::blocking::Clie
     panic!("labelize serve did not become healthy on {base}");
 }
 
-/// The 60 x 30 mm label with 3 mm margins for a 300-dpi ZD621.
+/// The 60 x 30 mm label with 3 mm margins and 1 mm corners for a 300-dpi
+/// ZD621.
 fn zd621_label(password: Option<&'static str>) -> Vec<u8> {
     let xml = format_xml(
         (66000, 36000),
@@ -88,7 +89,7 @@ fn zd621_label(password: Option<&'static str>) -> Vec<u8> {
         (3000, 3000),
         &zd621_300dpi(),
     );
-    archive(&xml, password)
+    archive(&with_radius(&xml, 1000, 1000), password)
 }
 
 #[test]
@@ -111,6 +112,8 @@ fn nlbl_reports_measurements_and_a_dot_exact_convert_query() {
     assert_eq!(json["page_width_mm"], 66.0);
     assert_eq!(json["page_height_mm"], 36.0);
     assert_eq!(json["margins_mm"]["left"], 3.0);
+    assert_eq!(json["radius_mm"]["horizontal"], 1.0);
+    assert_eq!(json["radius_mm"]["vertical"], 1.0);
     assert_eq!(json["dpi"], 300);
     assert_eq!(json["dpmm"], 12);
     assert_eq!(json["printer"], "ZDesigner ZD621-300dpi ZPL");
@@ -118,6 +121,7 @@ fn nlbl_reports_measurements_and_a_dot_exact_convert_query() {
     // The query renders the designer's ^PW780/^LL425 page dot for dot, with
     // the colour guide overlay on.
     let query = json["convert_query"].as_str().expect("convert_query");
+    assert!(query.contains("&radius="), "{query}");
     let png = client
         .post(format!("{base}/convert?{query}"))
         .header("Content-Type", "application/zpl")
