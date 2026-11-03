@@ -9,12 +9,17 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand, ValueEnum};
 #[cfg(any(feature = "cli", feature = "serve"))]
 use labelize::{
-    parse_labels, DrawerOptions, LabelGuides, LabelInfo, LabelMargins, Language, Renderer,
-    ReverseLanguage,
+    parse_labels, CornerRadius, DrawerOptions, LabelGuides, LabelInfo, LabelMargins, Language,
+    Renderer, ReverseLanguage,
 };
 
 #[cfg(feature = "cli")]
 fn parse_margins(s: &str) -> Result<LabelMargins, String> {
+    s.parse()
+}
+
+#[cfg(feature = "cli")]
+fn parse_radius(s: &str) -> Result<CornerRadius, String> {
     s.parse()
 }
 
@@ -133,8 +138,13 @@ enum Commands {
         #[arg(long, value_parser = parse_margins)]
         margins: Option<LabelMargins>,
 
+        /// Corner radius in mm of the label inside the margins: one value
+        /// or "horizontal,vertical". Implies --guides.
+        #[arg(long, value_parser = parse_radius)]
+        radius: Option<CornerRadius>,
+
         /// ZebraDesigner/NiceLabel .nlbl design file: supplies the label
-        /// size, margins and printer dpmm (explicit flags still win) and
+        /// size, margins, corner radius and printer dpmm (explicit flags still win) and
         /// turns on the guide overlay. Password from LABELIZE_NLBL_PASSWORD
         /// (environment or ./.env).
         #[arg(long)]
@@ -198,6 +208,7 @@ fn main() {
             antialias,
             guides,
             margins,
+            radius,
             nlbl,
         } => {
             let layout = match nlbl.as_deref().map(read_nlbl).transpose() {
@@ -233,8 +244,19 @@ fn main() {
                         }
                     },
                 ));
-            let guides = (guides || margins.is_some()).then(|| LabelGuides {
+            let radius =
+                radius.or(layout.as_ref().map(
+                    |l| {
+                        if exact {
+                            l.render_radius()
+                        } else {
+                            l.radius
+                        }
+                    },
+                ));
+            let guides = (guides || margins.is_some() || radius.is_some()).then(|| LabelGuides {
                 margins: margins.unwrap_or_default(),
+                radius: radius.unwrap_or_default(),
             });
             if let Err(e) = convert_file(
                 &input,
@@ -262,6 +284,7 @@ fn main() {
                     "margins_mm={},{},{},{}",
                     m.top_mm, m.right_mm, m.bottom_mm, m.left_mm
                 );
+                println!("radius_mm={},{}", l.radius.x_mm, l.radius.y_mm);
                 if let Some(dpi) = l.dpi {
                     println!("dpi={dpi}");
                 }
@@ -497,6 +520,7 @@ fn nlbl_json(layout: &labelize::NlblLayout) -> String {
         "margins_mm": {
             "top": m.top_mm, "right": m.right_mm, "bottom": m.bottom_mm, "left": m.left_mm,
         },
+        "radius_mm": { "horizontal": layout.radius.x_mm, "vertical": layout.radius.y_mm },
         "dpi": layout.dpi,
         "dpmm": layout.dpmm(),
         "printer": layout.printer,
@@ -506,6 +530,11 @@ fn nlbl_json(layout: &labelize::NlblLayout) -> String {
     let r = layout.render_margins();
     let margins = format!("{},{},{},{}", r.top_mm, r.right_mm, r.bottom_mm, r.left_mm);
     let mut query = format!("width={width}&height={height}&margins={margins}");
+    let rr = layout.render_radius();
+    let radius = (!rr.is_zero()).then(|| format!("{},{}", rr.x_mm, rr.y_mm));
+    if let Some(radius) = &radius {
+        query.push_str(&format!("&radius={radius}"));
+    }
     if let Some(dpmm) = layout.dpmm() {
         query.push_str(&format!("&dpmm={dpmm}"));
     }
@@ -514,6 +543,7 @@ fn nlbl_json(layout: &labelize::NlblLayout) -> String {
         "height_mm": height,
         "dpmm": layout.dpmm(),
         "margins": margins,
+        "radius": radius,
     });
     body["convert_query"] = query.into();
     body.to_string()
@@ -623,6 +653,9 @@ async fn serve(host: String, port: u16) {
         /// Margins in mm: "2" or "top,right,bottom,left". Implies guides.
         #[serde(default)]
         margins: Option<String>,
+        /// Corner radius in mm: "1" or "horizontal,vertical". Implies guides.
+        #[serde(default)]
+        radius: Option<String>,
     }
 
     fn default_dpmm() -> i32 {
@@ -659,9 +692,16 @@ async fn serve(host: String, port: u16) {
             Some(Ok(m)) => Some(m),
             None => None,
         };
-        let guides = (params.guides || margins.is_some()).then(|| LabelGuides {
-            margins: margins.unwrap_or_default(),
-        });
+        let radius = match params.radius.as_deref().map(str::parse::<CornerRadius>) {
+            Some(Err(msg)) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+            Some(Ok(r)) => Some(r),
+            None => None,
+        };
+        let guides =
+            (params.guides || margins.is_some() || radius.is_some()).then(|| LabelGuides {
+                margins: margins.unwrap_or_default(),
+                radius: radius.unwrap_or_default(),
+            });
 
         let options = labelize::RenderOptions {
             language,

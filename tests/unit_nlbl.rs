@@ -9,10 +9,10 @@ use std::io::Write;
 
 #[path = "common/nlbl_fixtures.rs"]
 mod nlbl_fixtures;
-use nlbl_fixtures::{archive, devmode_b64, format_xml, zd621_300dpi, TEST_PASSWORD};
+use nlbl_fixtures::{archive, devmode_b64, format_xml, with_radius, zd621_300dpi, TEST_PASSWORD};
 
 use labelize::parsers::nlbl::layout::parse_format_xml;
-use labelize::{parse_nlbl, LabelMargins, LabelizeError};
+use labelize::{parse_nlbl, CornerRadius, LabelMargins, LabelizeError};
 use zip::write::SimpleFileOptions;
 
 #[test]
@@ -271,4 +271,43 @@ fn every_printer_resolution_renders_on_its_own_dots() {
         let left = (layout.render_margins().left_mm * dpmm as f64).round() as u32;
         assert_eq!(left, margin_dots, "{dpi} dpi margin");
     }
+}
+
+#[test]
+fn reads_the_corner_radius() {
+    // The designer's "Radius" group: 1 mm vertical and horizontal.
+    let base = format_xml(
+        (66000, 36000),
+        (60000, 30000),
+        (3000, 3000),
+        &zd621_300dpi(),
+    );
+    let layout = parse_format_xml(&with_radius(&base, 1000, 1500)).unwrap();
+    assert_eq!(
+        layout.radius,
+        CornerRadius {
+            x_mm: 1.0,
+            y_mm: 1.5
+        }
+    );
+
+    // 300 dpi renders at 12 dpmm: 1 mm is 11.81 printer dots, kept as such.
+    let dpmm = layout.dpmm().unwrap() as f64;
+    let r = layout.render_radius();
+    assert!((r.x_mm * dpmm - 1000.0 / 25400.0 * 300.0).abs() < 1e-9);
+
+    // Files without the elements (square labels) read as zero.
+    let square = parse_format_xml(&base).unwrap();
+    assert!(square.radius.is_zero());
+}
+
+#[test]
+fn malformed_radius_is_a_parse_error() {
+    let base = format_xml((66000, 36000), (60000, 30000), (3000, 3000), "");
+    let xml = base.replace(
+        "</PageLayout>",
+        "<HorizontalRadius>wide</HorizontalRadius></PageLayout>",
+    );
+    let err = parse_format_xml(&xml).expect_err("must fail");
+    assert!(err.to_string().contains("HorizontalRadius"), "{err}");
 }

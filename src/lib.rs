@@ -28,7 +28,7 @@ pub mod skill;
 
 pub use drawers::renderer::Renderer;
 pub use elements::drawer_options::DrawerOptions;
-pub use elements::label_guides::{LabelGuides, LabelMargins};
+pub use elements::label_guides::{CornerRadius, LabelGuides, LabelMargins};
 pub use elements::label_info::LabelInfo;
 pub use error::LabelizeError;
 pub use images::monochrome::encode_png;

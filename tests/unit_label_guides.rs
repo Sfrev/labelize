@@ -1,13 +1,18 @@
 //! Label outline / margin guide overlay (`DrawerOptions::guides`).
 
-use labelize::{render_pdf, render_png, LabelGuides, LabelMargins, LabelizeError, RenderOptions};
+use labelize::{
+    render_pdf, render_png, CornerRadius, LabelGuides, LabelMargins, LabelizeError, RenderOptions,
+};
 
 /// 50 × 30 mm at 8 dpmm = 400 × 240 dots; a 2 mm margin is 16 dots.
 fn options(margins: Option<LabelMargins>) -> RenderOptions {
     RenderOptions {
         width_mm: Some(50.0),
         height_mm: Some(30.0),
-        guides: margins.map(|margins| LabelGuides { margins }),
+        guides: margins.map(|margins| LabelGuides {
+            margins,
+            ..LabelGuides::default()
+        }),
         ..RenderOptions::default()
     }
 }
@@ -125,4 +130,83 @@ fn pdf_with_guides_embeds_colour() {
     let has = |pdf: &[u8], needle: &[u8]| pdf.windows(needle.len()).any(|w| w == needle);
     assert!(has(&plain, b"DeviceGray") && !has(&plain, b"DeviceRGB"));
     assert!(has(&guided, b"DeviceRGB"));
+}
+
+/// 2 mm margins plus a corner radius on the 50 × 30 mm label.
+fn rounded(radius: CornerRadius) -> RenderOptions {
+    RenderOptions {
+        guides: Some(LabelGuides {
+            margins: LabelMargins::uniform(2.0),
+            radius,
+        }),
+        ..options(None)
+    }
+}
+
+#[test]
+fn rounded_corners_tint_the_cut_off_corner() {
+    // 2 mm radius = 16 dots: the label's corner box is (16..32, 16..32).
+    let img = rgb(&render_png(BLANK, rounded(CornerRadius::uniform(2.0)))
+        .unwrap()
+        .bytes);
+    // The corner tip is off the die-cut label, so it is tinted like a margin.
+    assert_eq!(img.get_pixel(17, 17).0, [255, 207, 207], "cut-off corner");
+    assert_eq!(
+        img.get_pixel(382, 222).0,
+        [255, 207, 207],
+        "opposite corner"
+    );
+    // Just inside the arc is paper.
+    assert_eq!(img.get_pixel(26, 26).0, [255, 255, 255], "inside the arc");
+    // The dashed border follows the arc through the corner box, and never
+    // touches the corner square's outer tip.
+    let arc_dots = (16..32)
+        .flat_map(|y| (16..32).map(move |x| (x, y)))
+        .filter(|&(x, y)| img.get_pixel(x, y).0 == [0, 102, 255])
+        .count();
+    assert!(arc_dots > 0, "dashed border follows the arc");
+    assert_ne!(img.get_pixel(16, 16).0, [0, 102, 255], "no square corner");
+    // Straight edges are unchanged: the top border still starts 16 dots
+    // down (x = 48 is 32 dots along, inside the fifth 8-dot dash).
+    assert_eq!(img.get_pixel(48, 16).0, [0, 102, 255], "straight edge");
+}
+
+#[test]
+fn zero_radius_matches_square_guides() {
+    let square = render_png(BLANK, options(Some(LabelMargins::uniform(2.0)))).unwrap();
+    let zero = render_png(BLANK, rounded(CornerRadius::default())).unwrap();
+    assert_eq!(square.bytes, zero.bytes);
+}
+
+#[test]
+fn oversized_radius_is_clamped_to_half_the_label() {
+    // 100 mm far exceeds the 46 × 26 mm printable area: the corners become
+    // half-ellipses rather than overlapping, and the centre stays paper.
+    let img = rgb(&render_png(BLANK, rounded(CornerRadius::uniform(100.0)))
+        .unwrap()
+        .bytes);
+    assert_eq!(img.get_pixel(200, 120).0, [255, 255, 255], "centre");
+    assert_eq!(img.get_pixel(20, 20).0, [255, 207, 207], "corner");
+}
+
+#[test]
+fn invalid_radius_is_an_input_error() {
+    for radius in [CornerRadius::uniform(-1.0), CornerRadius::uniform(f64::NAN)] {
+        let err = render_png(BLANK, rounded(radius)).expect_err("must fail");
+        assert!(matches!(err, LabelizeError::Parse(_)), "{radius:?}: {err}");
+    }
+}
+
+#[test]
+fn radius_parses_from_one_or_two_values() {
+    assert_eq!("1".parse::<CornerRadius>(), Ok(CornerRadius::uniform(1.0)));
+    assert_eq!(
+        "1, 2".parse::<CornerRadius>(),
+        Ok(CornerRadius {
+            x_mm: 1.0,
+            y_mm: 2.0
+        })
+    );
+    assert!("1,2,3".parse::<CornerRadius>().is_err());
+    assert!("x".parse::<CornerRadius>().is_err());
 }

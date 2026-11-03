@@ -116,14 +116,15 @@ curl -X POST --data-binary @label.nlbl http://localhost:8080/nlbl
 | `label_width_mm`, `label_height_mm` | The label, as entered under "Label dimensions" |
 | `page_width_mm`, `page_height_mm` | Label plus margins — what the printer prints, and the ZPL's `^PW`/`^LL` |
 | `margins_mm` | `top`, `right`, `bottom`, `left` in mm |
+| `radius_mm` | Corner radius, `horizontal` and `vertical` in mm (0 = square corners) |
 | `dpi`, `dpmm` | Printer resolution (`null` when the file records none) |
 | `printer` | Printer driver name |
-| `render` | Page size, dpmm and margins re-expressed so they land on the printer's dots (300 dpi is 11.81 dots/mm) |
+| `render` | Page size, dpmm, margins and radius re-expressed so they land on the printer's dots (300 dpi is 11.81 dots/mm) |
 | `convert_query` | `render` as a ready query string for `/convert?…` |
 
 Typical flow: call `/nlbl` once when a label is imported, store
 `convert_query` next to its ZPL, and render with
-`POST /convert?{convert_query}` to see the label outline and margins.
+`POST /convert?{convert_query}` to see the label outline, margins and rounded corners.
 
 The archive is password-protected and labelize does not ship the password:
 start the server with `LABELIZE_NLBL_PASSWORD` set. `400` means the upload is

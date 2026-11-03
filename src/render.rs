@@ -120,7 +120,6 @@ fn render(bytes: &[u8], options: RenderOptions, want_pdf: bool) -> Result<Render
     // Parse error (HTTP 400) rather than letting the renderer fail with 500.
     if let Some(guides) = &drawer.guides {
         guides
-            .margins
             .validate(drawer.label_width_mm, drawer.label_height_mm)
             .map_err(LabelizeError::Parse)?;
     }

@@ -10,6 +10,8 @@
 //!   under "Label dimensions" in the designer.
 //! - `PageLayout/HorizontalOffset`, `VerticalOffset`: left and top margins;
 //!   right and bottom are what remains of the page around the label.
+//! - `PageLayout/HorizontalRadius`, `VerticalRadius`: the label's corner
+//!   radius (the designer's "Radius" group); absent or 0 = square corners.
 //! - `PrintScenario…/Printer/DevModeBuffer`: base64 DEVMODEW; its print
 //!   quality / Y resolution give the printer dpi. The driver name
 //!   (`ZDesigner ZD621-300dpi ZPL`) is the fallback.
@@ -17,7 +19,7 @@
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use crate::elements::label_guides::LabelMargins;
+use crate::elements::label_guides::{CornerRadius, LabelMargins};
 use crate::error::LabelizeError;
 
 /// Design-file lengths are stored in micrometres.
@@ -40,6 +42,8 @@ pub struct NlblLayout {
     pub page_height_mm: f64,
     /// Distance from each page edge to the label.
     pub margins: LabelMargins,
+    /// Corner radius of the label (zero = square corners).
+    pub radius: CornerRadius,
     /// Printer resolution in dots per inch, when the file records one.
     pub dpi: Option<u32>,
     /// Printer driver name, e.g. `ZDesigner ZD621-300dpi ZPL`.
@@ -69,16 +73,32 @@ impl NlblLayout {
     /// Margins in mm to render at [`NlblLayout::dpmm`], on the same printer
     /// dots as [`NlblLayout::render_page_mm`].
     pub fn render_margins(&self) -> LabelMargins {
-        let scale = match (self.dpi, self.dpmm()) {
-            (Some(dpi), Some(dpmm)) if dpmm > 0 => dpi as f64 / 25.4 / dpmm as f64,
-            _ => 1.0,
-        };
+        let scale = self.dot_scale();
         let m = self.margins;
         LabelMargins {
             left_mm: m.left_mm * scale,
             top_mm: m.top_mm * scale,
             right_mm: m.right_mm * scale,
             bottom_mm: m.bottom_mm * scale,
+        }
+    }
+
+    /// Corner radius in mm to render at [`NlblLayout::dpmm`], on the same
+    /// printer dots as [`NlblLayout::render_page_mm`].
+    pub fn render_radius(&self) -> CornerRadius {
+        let scale = self.dot_scale();
+        CornerRadius {
+            x_mm: self.radius.x_mm * scale,
+            y_mm: self.radius.y_mm * scale,
+        }
+    }
+
+    /// Factor from real millimetres to the engine's millimetres at the
+    /// printer's exact dot pitch (1 when the file records no dpi).
+    fn dot_scale(&self) -> f64 {
+        match (self.dpi, self.dpmm()) {
+            (Some(dpi), Some(dpmm)) if dpmm > 0 => dpi as f64 / 25.4 / dpmm as f64,
+            _ => 1.0,
         }
     }
 }
@@ -95,7 +115,7 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
     let page_height_mm = length_mm(media, "Height")?;
 
     // Without a PageLayout the label fills the page.
-    let (label_width_mm, label_height_mm, margins) = match child(root, "PageLayout") {
+    let (label_width_mm, label_height_mm, margins, radius) = match child(root, "PageLayout") {
         Some(layout) => {
             let left = length_mm(layout, "HorizontalOffset")?;
             let top = length_mm(layout, "VerticalOffset")?;
@@ -107,9 +127,18 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
                 right_mm: (page_width_mm - label_w - left).max(0.0),
                 bottom_mm: (page_height_mm - label_h - top).max(0.0),
             };
-            (label_w, label_h, margins)
+            let radius = CornerRadius {
+                x_mm: optional_length_mm(layout, "HorizontalRadius")?,
+                y_mm: optional_length_mm(layout, "VerticalRadius")?,
+            };
+            (label_w, label_h, margins, radius)
         }
-        None => (page_width_mm, page_height_mm, LabelMargins::default()),
+        None => (
+            page_width_mm,
+            page_height_mm,
+            LabelMargins::default(),
+            CornerRadius::default(),
+        ),
     };
     if label_width_mm <= 0.0 || label_height_mm <= 0.0 {
         return Err(LabelizeError::Parse(format!(
@@ -142,6 +171,7 @@ pub fn parse_format_xml(xml: &str) -> Result<NlblLayout, LabelizeError> {
         page_width_mm,
         page_height_mm,
         margins,
+        radius,
         dpi,
         printer,
     })
@@ -160,6 +190,14 @@ fn text<'a>(node: Node<'a, '_>, name: &str) -> Option<&'a str> {
 
 fn missing(what: &str) -> LabelizeError {
     LabelizeError::Parse(format!(".nlbl format XML has no <{what}>"))
+}
+
+/// A length that may be absent (older files, square labels): absent = 0.
+fn optional_length_mm(node: Node, name: &str) -> Result<f64, LabelizeError> {
+    match child(node, name) {
+        Some(_) => length_mm(node, name),
+        None => Ok(0.0),
+    }
 }
 
 fn length_mm(node: Node, name: &str) -> Result<f64, LabelizeError> {
@@ -238,6 +276,7 @@ mod tests {
             page_width_mm: 1.0,
             page_height_mm: 1.0,
             margins: LabelMargins::default(),
+            radius: CornerRadius::default(),
             dpi: Some(dpi),
             printer: None,
         };

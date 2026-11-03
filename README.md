@@ -218,14 +218,16 @@ margins and printer resolution from one and draws them over the render of the
 ZPL it exports:
 
 ```bash
-labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … dpmm=12
+labelize nlbl label.nlbl                       # label_width_mm=60 … page_width_mm=66 … radius_mm=1,1 … dpmm=12
 labelize convert label.zpl --nlbl label.nlbl   # 66x36 mm page @ 12 dpmm + guides
 ```
 
 The designer places the label on a page with margins around it (a 60 × 30 mm
 label with 3 mm margins is a 66 × 36 mm page). ZPL coordinates are relative to
 that page, so it is the canvas; the dashed guide marks the label and the
-tinted band the margins. Sizes land on the printer's own dots: a 300-dpi
+tinted band the margins. A rounded die cut (the designer's "Radius" group)
+rounds the dashed guide and tints the cut-off corners too. Sizes land on the
+printer's own dots: a 300-dpi
 printer has 11.81 dots/mm, so that page renders at the designer's
 `^PW780`/`^LL425` (780 × 425 px at dpmm 12), not 792 × 432.
 
@@ -319,7 +321,8 @@ Convert Options:
   --antialias           8-bit grayscale output (default: 1-bit)
   --guides              Overlay the label outline and printable area (colour output)
   --margins <MM>        Margins for the overlay: "2" or "top,right,bottom,left"; implies --guides
-  --nlbl <PATH>         ZebraDesigner .nlbl design file: label size, margins and dpmm
+  --radius <MM>         Corner radius of the label inside the margins: "1" or "h,v"; implies --guides
+  --nlbl <PATH>         ZebraDesigner .nlbl design file: label size, margins, radius and dpmm
                         (explicit flags win); implies --guides
 
 Serve Options:
@@ -350,6 +353,7 @@ Serve Options:
 | `antialias` | false | Preserve antialiased greys instead of 1-bit |
 | `guides`  | false   | Overlay the label outline and printable area (colour output) |
 | `margins` | —       | Overlay margins in mm: `2` or `top,right,bottom,left`; implies `guides`. Margins that leave no printable area return `400` |
+| `radius`  | —       | Corner radius in mm of the label inside the margins: `1` or `horizontal,vertical`; implies `guides` |
 
 Status codes: `200` success (body is PNG/PDF bytes) · `400` parse error (bad label data) · `500` render error. Only the first label in the body is rendered — split multi-label files, or use the CLI.
 
@@ -361,9 +365,9 @@ label is imported), keep the query, and render the exported ZPL with it:
 ```bash
 curl -X POST --data-binary @label.nlbl http://localhost:8080/nlbl
 # {"label_width_mm":60.0,"label_height_mm":30.0,"page_width_mm":66.0,…,
-#  "dpi":300,"dpmm":12,"convert_query":"width=65&height=35.41…&margins=2.95…&dpmm=12"}
+#  "dpi":300,"dpmm":12,"convert_query":"width=65&height=35.41…&margins=2.95…&radius=0.98…&dpmm=12"}
 curl -X POST -H "Content-Type: application/zpl" --data-binary @label.prn \
-  "http://localhost:8080/convert?width=65&height=35.41…&margins=2.95…&dpmm=12" -o label.png
+  "http://localhost:8080/convert?width=65&height=35.41…&margins=2.95…&radius=0.98…&dpmm=12" -o label.png
 ```
 
 The server reads the archive password from `LABELIZE_NLBL_PASSWORD`

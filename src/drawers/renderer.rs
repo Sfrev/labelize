@@ -74,7 +74,7 @@ impl Renderer {
         let height_mm = options.label_height_mm;
         let dpmm = options.dpmm;
         if let Some(guides) = &options.guides {
-            guides.margins.validate(width_mm, height_mm)?;
+            guides.validate(width_mm, height_mm)?;
         }
 
         // A dot count converted through millimetres can land a few ULPs
