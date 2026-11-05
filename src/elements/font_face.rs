@@ -11,12 +11,18 @@
 //! faces (or adds variants) instead of reusing ZPL designators.
 
 use crate::assets::{
-    FONT_DEJAVU_SANS_MONO, FONT_DEJAVU_SANS_MONO_BOLD, FONT_ZERO_SUBSTITUTE, FONT_ZPL_GS,
+    FONT_DEJAVU_SANS_MONO, FONT_DEJAVU_SANS_MONO_BOLD, FONT_RESIDENT_SANS, FONT_ZERO_SUBSTITUTE,
+    FONT_ZPL_GS,
 };
 use crate::tuning;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FontFace {
+    /// Proportional sans substitute for a printer-resident TrueType font
+    /// (Zebra's Swiss 721 `TT0003M_`): Arimo, metric-compatible with
+    /// Arial/Helvetica. The height parameter is the em, the width parameter
+    /// scales it horizontally, and glyphs keep their own advances.
+    ResidentSans,
     /// Scalable condensed-bold substitute (ZPL font 0): per-glyph advance
     /// calibration, 0.75-cap em, Roboto Condensed Bold.
     CondensedBold,
@@ -53,6 +59,7 @@ impl FontFace {
                 FONT_DEJAVU_SANS_MONO_BOLD
             }
             FontFace::Symbol => FONT_ZPL_GS,
+            FontFace::ResidentSans => FONT_RESIDENT_SANS,
             FontFace::BitmapSquare
             | FontFace::ScalableMono
             | FontFace::BitmapMono
@@ -79,7 +86,7 @@ impl FontFace {
             FontFace::ScalableMono => tuning::FONT1_RATIO,
             FontFace::BitmapBoldWide => 2.317,
             FontFace::ResidentBitmap => 0.80,
-            FontFace::Symbol | FontFace::BitmapSquare => 1.0,
+            FontFace::Symbol | FontFace::BitmapSquare | FontFace::ResidentSans => 1.0,
             _ => 1.931,
         }
     }
@@ -99,6 +106,12 @@ impl FontFace {
             FontFace::ScalableMono => tuning::FONT1_X_OFFSET,
             _ => 0.0,
         }
+    }
+
+    /// True when the height parameter is the face's em (TrueType sizing), so
+    /// the renderer converts it to the substitute's ascent-to-descent scale.
+    pub fn sizes_by_em(self) -> bool {
+        matches!(self, FontFace::ResidentSans)
     }
 
     /// Field data has no lowercase on this face — draw it uppercased.
@@ -166,6 +179,15 @@ mod tests {
         assert_eq!(FontFace::ScalableMono.ttf_data(), FONT_DEJAVU_SANS_MONO);
         assert_eq!(FontFace::BitmapMono.ttf_data(), FONT_DEJAVU_SANS_MONO);
         assert_eq!(FontFace::Mono.ttf_data(), FONT_DEJAVU_SANS_MONO);
+        assert_eq!(FontFace::ResidentSans.ttf_data(), FONT_RESIDENT_SANS);
+    }
+
+    #[test]
+    fn resident_sans_keeps_natural_proportions() {
+        assert_eq!(FontFace::ResidentSans.width_ratio(), 1.0);
+        assert!(FontFace::ResidentSans.sizes_by_em());
+        assert!(!FontFace::CondensedBold.sizes_by_em());
+        assert!(!FontFace::ResidentSans.uses_cell_shift());
     }
 
     #[test]

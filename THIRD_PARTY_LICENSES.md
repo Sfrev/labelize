@@ -46,6 +46,16 @@ It replaces the previous `HelveticaBoldCondensedCustom.ttf`, which traced back
 to Adobe's proprietary Helvetica Condensed Bold (vendor `ADBE` copyright
 string preserved in its name table) and had no redistributable license.
 
+## Arimo (resident TrueType substitute)
+
+`src/assets/fonts/ArimoRegular.ttf` is the unmodified variable Arimo font
+(`ofl/arimo/Arimo[wght].ttf` from github.com/google/fonts), Copyright 2026 The
+Arimo Project Authors, licensed under the SIL Open Font License 1.1 (full text
+in `licenses/Arimo-OFL.txt`). Arimo is metric-compatible with Arial/Helvetica
+and stands in for the printer-resident Swiss 721 TrueType font (`TT0003M_`),
+which cannot be redistributed. The renderer reads the default (Regular)
+instance; the file is embedded via `include_bytes!`.
+
 ## DejaVu Sans Mono / DejaVu Sans Mono Bold (barcode interpretation lines, bitmap font substitutes)
 
 `src/assets/fonts/DejaVuSansMono.ttf` and `src/assets/fonts/DejaVuSansMonoBold.ttf`

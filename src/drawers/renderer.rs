@@ -300,7 +300,7 @@ impl Renderer {
         // Compute font ascent for ^FT baseline positioning.
         // Use a ZPL-proportional ascent (~76% of cell height) to match Zebra font metrics,
         // since our substitute TTF fonts have different ascent ratios.
-        let ascent = font_size * 0.76;
+        let mut ascent = font_size * 0.76;
 
         // Bitmap fonts (A–H) correction:
         // Zebra's built-in bitmap Font A uses 7 of its 9 dot rows for capital letters (cap-height
@@ -332,6 +332,17 @@ impl Renderer {
         // size-proportional pen offset) already account for this factor.
         if f0 {
             scale.y = font_size * crate::tuning::FONT0_CAP_SCALE as f32;
+        }
+        // TrueType sizing: the height parameter is the em, while ab_glyph scales
+        // the ascent-to-descent height, so stretch both axes by that ratio.
+        if face.sizes_by_em() {
+            if let Some(upem) = font.units_per_em() {
+                let em_to_height = font.height_unscaled() / upem;
+                scale.x *= em_to_height;
+                scale.y *= em_to_height;
+            }
+            // ^FT is the baseline: place it with the substitute's real ascent.
+            ascent = font.as_scaled(scale).ascent();
         }
         let cap_scale: f32 = face.cap_scale() as f32;
         // Bitmap fonts (A-H, P-V) enlarge the em by cap_scale only to match glyph

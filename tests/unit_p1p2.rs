@@ -256,6 +256,54 @@ fn aat_unknown_downloadable_name_falls_back_to_default() {
 }
 
 #[test]
+fn aat_documented_form_reads_orientation_and_resident_truetype_name() {
+    // ZebraDesigner's export: ^A@o,h,w,d:o.x with the printer's Swiss 721.
+    let labels = parse("^XA^FT50,80^A@R,38,30,E:TT0003M_.TTF^FD123^FS^XZ");
+    match &labels[0].elements[0] {
+        LabelElement::Text(t) => {
+            assert_eq!(t.font.name, "TT0003M_");
+            assert_eq!(
+                t.font.orientation,
+                labelize::elements::field_orientation::FieldOrientation::Rotated90
+            );
+            assert_eq!(t.font.height, 38.0);
+            assert_eq!(t.font.width, 30.0);
+        }
+        other => panic!("expected text, got {:?}", other),
+    }
+}
+
+#[test]
+fn aat_resident_truetype_renders_narrower_than_the_mono_default() {
+    let ink_width = |zpl: &str| {
+        let png = labelize::render_png(
+            zpl.as_bytes(),
+            labelize::RenderOptions {
+                dpmm: 12,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .bytes;
+        let img = image::load_from_memory(&png).unwrap().to_luma8();
+        let xs: Vec<u32> = img
+            .enumerate_pixels()
+            .filter(|(_, _, p)| p.0[0] < 128)
+            .map(|(x, _, _)| x)
+            .collect();
+        xs.iter().max().unwrap() - xs.iter().min().unwrap()
+    };
+    let resident = ink_width("^XA^FT20,100^A@N,38,38,TT0003M_^FD01/11/2031^FS^XZ");
+    let unknown = ink_width("^XA^FT20,100^A@N,38,38,XX9999Q_^FD01/11/2031^FS^XZ");
+    // Swiss 721 / Arial digits advance ~0.556 em: 10 chars at 38 dots ~ 190.
+    assert!((170..=205).contains(&resident), "resident width {resident}");
+    assert!(
+        unknown > resident + 60,
+        "mono {unknown} vs resident {resident}"
+    );
+}
+
+#[test]
 fn cw_maps_font_identifier() {
     let labels = parse("^XA^CWX,B^AX,30,20^FO50,50^FDHello^FS^XZ");
     match &labels[0].elements[0] {

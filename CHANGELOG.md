@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`^A@` documented form and the printer's Swiss 721 TrueType font**:
+  `^A@o,h,w,d:o.x` (what ZebraDesigner exports, e.g. `^A@N,38,38,TT0003M_`)
+  now reads the orientation, height, width and font name from their own
+  parameters; it used to take the orientation letter as the font name and
+  fall back to the mono default, so text overflowed the layout the printer
+  draws. The resident `TT0003M_` (with or without `E:` / `.TTF`) renders
+  with Arimo, metric-compatible with Arial/Helvetica, sized by em with the
+  `^FT` baseline on the substitute's real ascent. The short `^A@f,h,w` form,
+  with the name first, still works when no fourth parameter is given.
+
 ### Added
 
 - **Rounded label corners in the guide overlay**: `LabelGuides::radius`
