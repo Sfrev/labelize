@@ -5,3 +5,7 @@ pub static FONT_ZERO_SUBSTITUTE: &[u8] = include_bytes!("fonts/RobotoCondensedBo
 pub static FONT_DEJAVU_SANS_MONO: &[u8] = include_bytes!("fonts/DejaVuSansMono.ttf");
 pub static FONT_DEJAVU_SANS_MONO_BOLD: &[u8] = include_bytes!("fonts/DejaVuSansMonoBold.ttf");
 pub static FONT_ZPL_GS: &[u8] = include_bytes!("fonts/ZplGSCustom.ttf");
+/// Printer-resident TrueType substitute: Arimo (metric-compatible with
+/// Arial/Helvetica) for Zebra's Swiss 721 `TT0003M_`. OFL-1.1; see
+/// licenses/Arimo-OFL.txt.
+pub static FONT_RESIDENT_SANS: &[u8] = include_bytes!("fonts/ArimoRegular.ttf");

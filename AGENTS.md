@@ -55,7 +55,7 @@ break them; CI enforces both):
 | `src/drawers/renderer.rs` | Image canvas creation, element drawing, compositing |
 | `src/barcodes/` | Barcode encoders: Code128, Code39, EAN-13, 2of5, PDF417, Aztec, DataMatrix, QR, MaxiCode |
 | `src/parsers/zpl/charsets.rs` | ^CI character-set tables (ZPL-only; `labelize::encodings` is a compat alias) |
-| `src/assets/fonts/` | Embedded fonts: Roboto Condensed Bold (font 0), DejaVu Sans Mono, ZPL GS |
+| `src/assets/fonts/` | Embedded fonts: Roboto Condensed Bold (font 0), DejaVu Sans Mono, ZPL GS, Arimo (resident `TT0003M_`) |
 
 ## ZPL Official Reference
 

@@ -56,9 +56,26 @@ fn pqrs_font_matrices() -> &'static HashMap<&'static str, [f64; 2]> {
 
 pub use crate::elements::font::is_pv_font;
 
+/// Printer-resident TrueType fonts reachable by name through `^A@` / `^CW`
+/// (`E:TT0003M_.TTF`, `TT0003M_`). ZebraDesigner exports its text in the
+/// printer font this way; without a mapping it would fall back to the mono
+/// default and overflow the layout.
+const RESIDENT_TRUETYPE_FONTS: &[&str] = &["TT0003M_"];
+
+/// The resident TrueType designator for a `^A@`/`^CW` font name, if any.
+pub fn resident_truetype_designator(name: &str) -> Option<&'static str> {
+    let base = name.rsplit(':').next().unwrap_or(name);
+    let base = base.split('.').next().unwrap_or(base).trim();
+    RESIDENT_TRUETYPE_FONTS
+        .iter()
+        .copied()
+        .find(|known| known.eq_ignore_ascii_case(base))
+}
+
 pub fn is_standard_font(font: &FontInfo) -> bool {
     font.name == "0"
         || font.name == "1"
+        || RESIDENT_TRUETYPE_FONTS.contains(&font.name.as_str())
         || bitmap_font_sizes().contains_key(font.name.as_str())
         // Zebra resident scalable fonts (not bitmap, not font-0)
         || matches!(
@@ -85,6 +102,7 @@ pub fn resolve_designator(name: &str) -> (FontFace, f64, bool) {
         "P" | "Q" | "R" | "S" | "T" | "U" | "V" => FontFace::ResidentBitmap,
         "A" | "C" | "E" | "F" | "G" | "H" => FontFace::BitmapMono,
         "W" | "X" | "Y" | "Z" => FontFace::Mono,
+        n if RESIDENT_TRUETYPE_FONTS.contains(&n) => FontFace::ResidentSans,
         _ => {
             warn_unmapped_font(name);
             FontFace::Mono
@@ -293,6 +311,19 @@ mod tests {
     fn unmapped_designators_fall_back_to_plain_mono() {
         assert_eq!(face_of("2"), FontFace::Mono);
         assert_eq!(face_of("E:TT0003M_.FNT"), FontFace::Mono);
+    }
+
+    #[test]
+    fn resident_truetype_names_resolve_to_the_sans_substitute() {
+        for name in ["TT0003M_", "E:TT0003M_.TTF", "e:tt0003m_.ttf"] {
+            assert_eq!(
+                resident_truetype_designator(name),
+                Some("TT0003M_"),
+                "{name}"
+            );
+        }
+        assert_eq!(resident_truetype_designator("E:ARIAL.TTF"), None);
+        assert_eq!(face_of("TT0003M_"), FontFace::ResidentSans);
     }
 
     #[test]

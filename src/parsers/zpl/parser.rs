@@ -648,18 +648,36 @@ impl ZplParser {
         self.printer.next_font = Some(font);
     }
 
-    /// `^A@f,h,w` -- change font by name. `f` may be a built-in designator or a
-    /// downloadable font name (device prefix, extension); names we cannot render
-    /// degrade to the default font like `^A`'s numeric fallback does.
+    /// `^A@o,h,w,d:o.x` -- change font by name (Zebra's documented form, which
+    /// ZebraDesigner exports: `^A@N,38,38,TT0003M_`). The short `^A@f,h,w` form,
+    /// with the name first, is still read when no fourth parameter is given.
+    /// The name may be a built-in designator or a downloadable font name (device
+    /// prefix, extension); names we cannot render degrade to the default font
+    /// like `^A`'s numeric fallback does.
     fn parse_change_font_named(&mut self, command: &str) {
         let parts = split_command(command, "^A@");
-        if parts.is_empty() || parts[0].is_empty() {
-            self.printer.next_font = None;
-            return;
-        }
+        let named = parts.get(3).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let (name, orientation) = match named {
+            Some(name) => {
+                let orientation = parts[0]
+                    .trim()
+                    .bytes()
+                    .next()
+                    .map(to_field_orientation)
+                    .unwrap_or(self.printer.default_font.orientation);
+                (name, orientation)
+            }
+            None => {
+                if parts.is_empty() || parts[0].is_empty() {
+                    self.printer.next_font = None;
+                    return;
+                }
+                (parts[0], self.printer.default_font.orientation)
+            }
+        };
         let mut font = crate::elements::font::FontInfo {
-            name: self.resolve_font_name(parts[0]),
-            orientation: self.printer.default_font.orientation,
+            name: self.resolve_font_name(name),
+            orientation,
             ..Default::default()
         };
 
@@ -703,6 +721,9 @@ impl ZplParser {
     /// built-in designator. Downloadable font names are unrecognizable here and fall
     /// back to the default font.
     fn resolve_font_name(&self, name: &str) -> String {
+        if let Some(designator) = zebra_fonts::resident_truetype_designator(name) {
+            return designator.to_string();
+        }
         let base = name.rsplit(':').next().unwrap_or(name);
         let base = base.split('.').next().unwrap_or(base);
         let mut chars = base.chars();
